@@ -77,6 +77,17 @@ def test_rejects_bad_relative_link(make_repo):
     assert any("relative link target not found" in error for error in errors)
 
 
+def test_rejects_missing_markdown_anchors(make_repo):
+    root = make_repo(
+        {
+            "README.md": "# demo\n\nInstall and run this.\n\n[Missing](#missing)\n[Doc](docs/setup.md#configuration)\n",
+            "docs/setup.md": "# Setup\n",
+        }
+    )
+    _warnings, errors = val.validate(root / "README.md")
+    assert sum("anchor target not found" in error for error in errors) == 2
+
+
 def test_rejects_wrong_ecosystem_badge(make_repo):
     root = make_repo(
         {
@@ -109,3 +120,48 @@ def test_warns_when_skill_collection_has_no_skill_index(make_repo):
     warnings, errors = val.validate(root / "README.md", repo=root)
     assert errors == []
     assert any("skill index" in warning for warning in warnings)
+
+
+def test_warns_when_agent_skill_lacks_install_and_trigger_guidance(make_repo):
+    root = make_repo(
+        {
+            "README.md": "# skill\n\nA README skill for repository docs.\n",
+            "SKILL.md": "---\nname: skill\ndescription: Docs\n---\n",
+        }
+    )
+    warnings, errors = val.validate(root / "README.md", repo=root)
+    assert errors == []
+    assert any("install guidance" in warning for warning in warnings)
+    assert any("trigger guidance" in warning for warning in warnings)
+
+
+def test_warns_when_readme_variants_have_no_language_selector(make_repo):
+    root = make_repo(
+        {
+            "README.md": "# demo\n\nInstall and run this project.\n\n```bash\nmake test\n```\n",
+            "README.zh.md": "# demo\n",
+        }
+    )
+    warnings, errors = val.validate(root / "README.md", repo=root)
+    assert errors == []
+    assert any("language selector" in warning for warning in warnings)
+
+
+def test_accepts_readme_variant_language_selector_links(make_repo):
+    root = make_repo(
+        {
+            "README.md": "# demo\n\n[English](README.md) | [Chinese](README.zh.md)\n\nInstall and run this project.\n",
+            "README.zh.md": "# demo\n",
+        }
+    )
+    warnings, errors = val.validate(root / "README.md", repo=root)
+    assert errors == []
+    assert not any("language selector" in warning for warning in warnings)
+
+
+def test_warns_when_long_readme_has_no_contents_navigation(make_repo):
+    body = "\n".join(f"Line {index}" for index in range(130))
+    root = make_repo({"README.md": f"# demo\n\nInstall and run this project.\n\n{body}\n"})
+    warnings, errors = val.validate(root / "README.md")
+    assert errors == []
+    assert any("contents section" in warning for warning in warnings)

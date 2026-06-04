@@ -10,7 +10,7 @@ Install the package and import or call one minimal real API.
 
 ## First screen
 
-Show name, real badges, one-sentence purpose, install command, and the smallest usage example.
+Show name, real badges, one-sentence purpose, install method(s), and the smallest usage example.
 
 ## Required sections
 

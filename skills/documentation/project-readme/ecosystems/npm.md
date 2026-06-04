@@ -10,12 +10,14 @@ Use for repositories with `package.json`.
 
 ## Commands
 
-- Match the package manager from the lockfile: `pnpm`, `npm`, `yarn`, or `bun`.
-- Use existing scripts for development, test, build, lint, docs, and start commands.
+- Use the lockfile package manager (`pnpm`, `npm`, `yarn`, or `bun`) for repository development commands such as install, test, build, lint, docs, and start.
+- For public or publishable registry packages, default to a compact consumer install block with common package managers, such as `npm install`, `pnpm add`, `yarn add`, and `bun add`.
+- Put the lockfile package manager first when ordering install alternatives, but do not remove existing correct alternatives just because the repo uses a different manager internally.
 - For publishable packages, install examples can use the registry package name only when the package is not clearly private.
 
 ## Do not invent
 
 - npm badges for private packages or repos without a real package name.
+- Public registry install alternatives for private packages or unpublished source-only apps.
 - Exported APIs not backed by `exports`, entry files, docs, or examples.
 - Framework-specific commands unless dependencies or scripts support them.

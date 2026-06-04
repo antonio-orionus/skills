@@ -320,6 +320,34 @@ def relative_paths(root: pathlib.Path, pattern: str) -> list[str]:
     return sorted(str(path.relative_to(root)) for path in root.glob(pattern))
 
 
+def detect_media_assets(root: pathlib.Path) -> list[str]:
+    image_suffixes = {".svg", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".ico"}
+    keywords = ("logo", "icon", "banner", "hero", "screenshot", "cover", "brand", "mark")
+    ignored_parts = {"node_modules", "vendor", "dist", "build", "target", "__pycache__"}
+    assets: list[str] = []
+    for path in root.rglob("*"):
+        if not path.is_file() or path.suffix.lower() not in image_suffixes:
+            continue
+        rel = path.relative_to(root)
+        if any(part in ignored_parts or part.startswith(".") for part in rel.parts[:-1]):
+            continue
+        lowered = str(rel).lower()
+        if any(keyword in lowered for keyword in keywords):
+            assets.append(str(rel))
+    return sorted(assets)
+
+
+def readme_variants(root: pathlib.Path) -> list[str]:
+    variants = [
+        path.name
+        for path in root.iterdir()
+        if path.is_file()
+        and path.suffix.lower() == ".md"
+        and path.name.lower().startswith("readme")
+    ]
+    return sorted(variants, key=str.lower)
+
+
 def detect_spdx_from_license_text(text: str) -> str:
     normalized = re.sub(r"\s+", " ", text[:4000]).strip().lower()
     if not normalized:
@@ -700,6 +728,8 @@ def inspect_repo(root: pathlib.Path) -> dict[str, Any]:
         "github_workflows": list_workflows(root),
         "license": detect_license(root, package, pyproject, cargo),
         "package": package_meta,
+        "media_assets": detect_media_assets(root),
+        "readme_variants": readme_variants(root),
         "agent_skills": skill_inventory,
         "signals": signals,
         "readme_type_signals": type_signals,

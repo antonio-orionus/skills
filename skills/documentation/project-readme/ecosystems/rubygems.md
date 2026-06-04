@@ -10,12 +10,13 @@ Use for repositories with `*.gemspec` or `Gemfile`.
 
 ## Commands
 
-- Use `bundle install` when a Gemfile exists.
+- Use `bundle install` and `bundle exec` commands for repository development setup when a Gemfile exists.
 - Use `bundle exec rake`, `bundle exec rspec`, or gemspec executables only when present.
-- For gems, show `gem install` only when registry publication is intended.
+- For public or publishable gems, default to compact consumer install alternatives such as `gem install` and `bundle add`.
 
 ## Do not invent
 
 - RubyGems badges for non-gem projects.
+- Public RubyGems install alternatives for private gems or unpublished source-only apps.
 - Executable names not present in gemspec, `exe/`, or `bin/`.
 - Rails-specific setup unless the repo proves it is a Rails app.

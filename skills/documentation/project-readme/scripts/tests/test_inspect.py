@@ -132,6 +132,23 @@ def test_agent_skill_collection_inventory(make_repo):
     assert data["agent_skills"]["skills"][0]["name"] == "a"
 
 
+def test_detects_media_assets_and_readme_variants(make_repo):
+    root = make_repo(
+        {
+            "README.md": "# Demo\n",
+            "README.zh.md": "# Demo\n",
+            "docs/README.fr.md": "# Nested readme is not a sibling variant\n",
+            "assets/logo.svg": "<svg></svg>",
+            "public/app-screenshot.png": "",
+            "assets/photo.png": "",
+            ".ref/hidden-logo.svg": "<svg></svg>",
+        }
+    )
+    data = ins.inspect_repo(root)
+    assert data["media_assets"] == ["assets/logo.svg", "public/app-screenshot.png"]
+    assert data["readme_variants"] == ["README.md", "README.zh.md"]
+
+
 def test_detects_license_id_from_license_file(make_repo):
     root = make_repo({"LICENSE": "MIT License\n\nCopyright (c)\n"})
     assert ins.inspect_repo(root)["license"]["id"] == "MIT"
@@ -180,6 +197,8 @@ def test_contract_fields_present(make_repo):
         "github_workflows",
         "license",
         "package",
+        "media_assets",
+        "readme_variants",
         "signals",
         "readme_type_signals",
     ):

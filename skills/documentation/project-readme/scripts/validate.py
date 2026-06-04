@@ -10,7 +10,7 @@ import pathlib
 import re
 import sys
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 
 PLACEHOLDER_PATTERNS = [
@@ -51,6 +51,71 @@ def lines_outside_fenced_code(text: str) -> list[str]:
 
 def strip_inline_code(text: str) -> str:
     return re.sub(r"`[^`\n]*`", "", text)
+
+
+def split_link(link: str) -> tuple[str, str]:
+    clean = link.strip()
+    if clean.startswith("<") and clean.endswith(">"):
+        clean = clean[1:-1]
+    if "#" not in clean:
+        return unquote(clean), ""
+    target, anchor = clean.split("#", 1)
+    return unquote(target), unquote(anchor).strip()
+
+
+def github_slug(value: str) -> str:
+    value = re.sub(r"<[^>]+>", "", value)
+    value = re.sub(r"`([^`]*)`", r"\1", value)
+    value = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", value)
+    value = re.sub(r"[^\w\s-]", "", value.lower(), flags=re.UNICODE)
+    value = re.sub(r"\s+", "-", value.strip())
+    value = re.sub(r"-+", "-", value)
+    return value
+
+
+def markdown_anchor_set(text: str) -> set[str]:
+    anchors: set[str] = set()
+    slug_counts: dict[str, int] = {}
+    for match in re.finditer(r"<a\s+[^>]*(?:id|name)=[\"']([^\"']+)[\"']", text, flags=re.IGNORECASE):
+        anchors.add(match.group(1))
+    for line in lines_outside_fenced_code(text):
+        match = re.match(r"^(#{1,6})\s+(.+?)\s*#*\s*$", line)
+        if not match:
+            continue
+        slug = github_slug(match.group(2))
+        if not slug:
+            continue
+        count = slug_counts.get(slug, 0)
+        slug_counts[slug] = count + 1
+        anchors.add(slug if count == 0 else f"{slug}-{count}")
+    return anchors
+
+
+def anchor_exists(text: str, anchor: str) -> bool:
+    if not anchor:
+        return True
+    anchors = markdown_anchor_set(text)
+    return anchor in anchors or anchor.lower() in anchors
+
+
+def has_contents_navigation(text: str) -> bool:
+    first_screen = "\n".join(text.splitlines()[:80])
+    return bool(
+        re.search(r"^##+\s+(?:table of contents|contents)\b", text, flags=re.IGNORECASE | re.MULTILINE)
+        or re.search(r"^\s*[-*]\s+\[[^\]]+\]\(#[^)]+\)", first_screen, flags=re.MULTILINE)
+    )
+
+
+def has_language_selector(text: str) -> bool:
+    first_screen = "\n".join(text.splitlines()[:40])
+    return bool(
+        re.search(r"readme-language-selector|language selector", first_screen, flags=re.IGNORECASE)
+        or len(re.findall(r"README(?:\.[A-Za-z0-9-]+)?\.md", first_screen)) >= 2
+        or (
+            re.search(r"\b(languages?|translations?)\b", first_screen, flags=re.IGNORECASE)
+            and re.search(r"README(?:\.[A-Za-z0-9-]+)?\.md", first_screen)
+        )
+    )
 
 
 def load_inspector() -> Any:
@@ -99,20 +164,21 @@ def generic_checks(path: pathlib.Path, text: str) -> tuple[list[str], list[str]]
 
     root = path.parent.resolve()
     for link in collect_links(text):
-        if not link or link.startswith("#") or is_external(link):
+        if not link or is_external(link):
             continue
-        clean = link.split("#", 1)[0].strip()
-        if not clean:
-            continue
-        if clean.startswith("<") and clean.endswith(">"):
-            clean = clean[1:-1]
-        target = (root / clean).resolve()
+        link_target, anchor = split_link(link)
+        target = path.resolve() if not link_target else (root / link_target).resolve()
         try:
             target.relative_to(root)
         except ValueError:
             continue
         if not target.exists():
             errors.append(f"relative link target not found: {link}")
+            continue
+        if anchor and target.suffix.lower() in {".md", ".markdown"}:
+            target_text = text if target == path.resolve() else target.read_text(encoding="utf-8")
+            if not anchor_exists(target_text, anchor):
+                errors.append(f"anchor target not found: {link}")
 
     first_screen = "\n".join(lines[:25])
     if not re.search(r"(^|\n)#\s+\S+", first_screen):
@@ -121,6 +187,8 @@ def generic_checks(path: pathlib.Path, text: str) -> tuple[list[str], list[str]]
         warnings.append("first screen should include the fastest real start path")
     if len(text.strip()) < 400:
         warnings.append("README is very short; check whether setup and usage are complete")
+    if len(lines) > 120 and not has_contents_navigation(text):
+        warnings.append("long README should include a useful contents section")
 
     return warnings, errors
 
@@ -143,6 +211,7 @@ def fact_checks(text: str, facts: dict[str, Any]) -> tuple[list[str], list[str]]
     readme_type = facts.get("readme_type", "unknown")
     package = facts.get("package") or {}
     agent_skills = facts.get("agent_skills") or {}
+    readme_variants = facts.get("readme_variants") or []
     package_name = str(package.get("name") or facts.get("name") or "")
 
     first_h1 = next((line[2:].strip() for line in lines_outside_fenced_code(text) if line.startswith("# ")), "")
@@ -187,8 +256,15 @@ def fact_checks(text: str, facts: dict[str, Any]) -> tuple[list[str], list[str]]
         warnings.append("research-code README should include reproduction commands or experiment guidance")
     if readme_type == "agent-skill" and int(agent_skills.get("count") or 0) > 1 and not has_section(text, "Skills"):
         warnings.append("agent-skill collection README should include a skill index")
+    if readme_type == "agent-skill":
+        if not re.search(r"\b(install|copy|add|clone|plugin)\b", text, flags=re.IGNORECASE):
+            warnings.append("agent-skill README should include install guidance")
+        if not re.search(r"\b(trigger|prompt|request|when to use|use this skill|try)\b", text, flags=re.IGNORECASE):
+            warnings.append("agent-skill README should include trigger guidance")
     if re.search(r"\b(plugin|marketplace)\b", text, flags=re.IGNORECASE) and not agent_skills.get("plugin_manifests") and readme_type == "agent-skill":
         warnings.append("agent-skill README mentions plugin metadata but no plugin manifest was detected")
+    if len(readme_variants) > 1 and not has_language_selector(text):
+        warnings.append("multiple README variants exist but no language selector was detected")
 
     return warnings, errors
 

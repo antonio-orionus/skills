@@ -23,7 +23,8 @@ Use for `update/improve`, `rewrite`, and README quality requests. Run this befor
 
 - `description`: one sentence, concrete product category plus primary value, no marketing filler.
 - `keywords`: include terms users would search for; remove duplicates, private jargon, and stale ecosystem claims.
-- Scripts documented in README must exist and match the detected package manager.
+- Development scripts documented in README must exist and match the detected package manager.
+- Public registry install examples should not be narrowed to the repo's development package manager when other standard consumer tools apply.
 - Registry or badge claims must be backed by real publication intent or existing metadata.
 
 ## Final Check

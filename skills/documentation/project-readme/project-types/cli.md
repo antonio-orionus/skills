@@ -10,7 +10,7 @@ Install or run the command once with a real option or input.
 
 ## First screen
 
-Show the command name, what it automates, install/run command, and a tiny invocation.
+Show the command name, what it automates, install/run method(s), and a tiny invocation.
 
 ## Required sections
 

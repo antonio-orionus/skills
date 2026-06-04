@@ -10,7 +10,7 @@ Configure an MCP client and call one real tool.
 
 ## First screen
 
-Show the server purpose, supported transport, install/run command, and client config snippet.
+Show the server purpose, supported transport, install/run method(s), and client config snippet.
 
 ## Required sections
 

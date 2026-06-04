@@ -1,6 +1,6 @@
 {
   "name": "orionus-skills",
   "skills": [
-    "./skills/documentation/npm-github-readme"
+    "./skills/documentation/project-readme"
   ]
 }

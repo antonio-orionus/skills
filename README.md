@@ -1,12 +1,32 @@
 # Agent Skills
 
-A collection of skills for AI coding agents, following the [Agent Skills](https://agentskills.io/home) format.
+A collection of documentation skills for AI coding agents, following the [Agent Skills](https://agentskills.io/home) format. It is for people who want to install these skills into an agent, or maintain the skill files in this repository.
+
+Fastest start:
+
+```bash
+npx skills add antonio-orionus/skills
+```
 
 ## Skills
 
 | Skill | Description |
 |-------|-------------|
-| [`npm-github-readme`](skills/documentation/npm-github-readme/SKILL.md) | Create, update, or validate README files for npm packages and GitHub repositories |
+| [`project-readme`](skills/documentation/project-readme/SKILL.md) | Create, update, rewrite, or validate truthful README files for any project archetype |
+
+## Try `project-readme`
+
+After installing the collection, trigger the new README skill with a request like:
+
+```text
+Create a README for this repo and validate every claim against the source files.
+```
+
+or:
+
+```text
+Update this README for the primary reader and first successful action.
+```
 
 ## Installation
 
@@ -22,7 +42,7 @@ npx skills add antonio-orionus/skills
 
 ```bash
 claude plugin marketplace add antonio-orionus/skills
-claude plugin install orionus-skills@npm-github-readme
+claude plugin install orionus-skills@project-readme
 ```
 
 ### Option 3: Manual
@@ -42,6 +62,28 @@ Copy the contents of `skills/` to the appropriate location for your agent:
 ```bash
 git clone https://github.com/antonio-orionus/skills.git
 ln -s /path/to/skills/skills /path/to/your/project/.claude/skills
+```
+
+## Repository Layout
+
+| Path | Contents |
+|------|----------|
+| [`skills/documentation/project-readme/`](skills/documentation/project-readme/) | Archetype-driven README composer with inspector, validator, ecosystem modules, project-type modules, section modules, and references |
+| [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json) | Claude Code plugin manifest |
+
+## Validate
+
+Run the `project-readme` inspector and validator against this repository:
+
+```bash
+python3 skills/documentation/project-readme/scripts/inspect.py .
+python3 skills/documentation/project-readme/scripts/validate.py README.md --repo .
+```
+
+Run the script tests:
+
+```bash
+uv run --with pytest pytest skills/documentation/project-readme/scripts/tests -q
 ```
 
 ## Contributing

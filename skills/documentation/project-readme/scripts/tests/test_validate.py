@@ -45,6 +45,32 @@ def test_rejects_missing_h1_and_untagged_fence(make_repo):
     assert any("code fence without language tag" in error for error in errors)
 
 
+def test_ignores_h1_like_comments_inside_fenced_code(make_repo):
+    root = make_repo(
+        {
+            "README.md": "# demo\n\nInstall and run:\n\n```bash\n# install from npm\nnpm install demo\n```\n",
+        }
+    )
+    _warnings, errors = val.validate(root / "README.md")
+    assert not any("expected exactly one H1" in error for error in errors)
+
+
+def test_ignores_placeholders_inside_code(make_repo):
+    root = make_repo(
+        {
+            "README.md": "# demo\n\nInstall and run this example for `https://example.com`:\n\n```bash\ncurl https://example.com/health\n```\n",
+        }
+    )
+    _warnings, errors = val.validate(root / "README.md")
+    assert not any("placeholder remains" in error for error in errors)
+
+
+def test_rejects_placeholders_in_prose(make_repo):
+    root = make_repo({"README.md": "# demo\n\nTODO: explain this package.\n\n```bash\npython3 -m demo\n```\n"})
+    _warnings, errors = val.validate(root / "README.md")
+    assert any("placeholder remains" in error for error in errors)
+
+
 def test_rejects_bad_relative_link(make_repo):
     root = make_repo({"README.md": "# demo\n\nInstall this.\n\n[Missing](docs/missing.md)\n"})
     _warnings, errors = val.validate(root / "README.md")

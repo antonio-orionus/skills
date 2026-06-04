@@ -37,6 +37,22 @@ def is_external(link: str) -> bool:
     return parsed.scheme in {"http", "https", "mailto"}
 
 
+def lines_outside_fenced_code(text: str) -> list[str]:
+    lines: list[str] = []
+    fence_open = False
+    for line in text.splitlines():
+        if line.startswith("```"):
+            fence_open = not fence_open
+            continue
+        if not fence_open:
+            lines.append(line)
+    return lines
+
+
+def strip_inline_code(text: str) -> str:
+    return re.sub(r"`[^`\n]*`", "", text)
+
+
 def load_inspector() -> Any:
     path = pathlib.Path(__file__).resolve().parent / "inspect.py"
     spec = importlib.util.spec_from_file_location("project_readme_inspect", path)
@@ -58,13 +74,15 @@ def generic_checks(path: pathlib.Path, text: str) -> tuple[list[str], list[str]]
     warnings: list[str] = []
     errors: list[str] = []
     lines = text.splitlines()
+    prose_lines = lines_outside_fenced_code(text)
+    prose_text = strip_inline_code("\n".join(prose_lines))
 
-    h1_count = sum(1 for line in lines if line.startswith("# "))
+    h1_count = sum(1 for line in prose_lines if line.startswith("# "))
     if h1_count != 1:
         errors.append(f"expected exactly one H1, found {h1_count}")
 
     for pattern in PLACEHOLDER_PATTERNS:
-        if re.search(pattern, text, re.IGNORECASE):
+        if re.search(pattern, prose_text, re.IGNORECASE):
             errors.append(f"placeholder remains: {pattern}")
 
     fence_open = False
@@ -127,7 +145,7 @@ def fact_checks(text: str, facts: dict[str, Any]) -> tuple[list[str], list[str]]
     agent_skills = facts.get("agent_skills") or {}
     package_name = str(package.get("name") or facts.get("name") or "")
 
-    first_h1 = next((line[2:].strip() for line in text.splitlines() if line.startswith("# ")), "")
+    first_h1 = next((line[2:].strip() for line in lines_outside_fenced_code(text) if line.startswith("# ")), "")
     if package_name and first_h1 and package_name.lower() not in first_h1.lower() and first_h1.lower() not in package_name.lower():
         warnings.append(f"README H1 does not match detected package/repo name: {package_name}")
 

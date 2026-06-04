@@ -320,6 +320,38 @@ def relative_paths(root: pathlib.Path, pattern: str) -> list[str]:
     return sorted(str(path.relative_to(root)) for path in root.glob(pattern))
 
 
+def source_text_sample(root: pathlib.Path, suffixes: set[str], limit: int = 120_000) -> str:
+    ignored_parts = {
+        "node_modules",
+        "vendor",
+        "dist",
+        "build",
+        "target",
+        "__pycache__",
+        ".git",
+        "test",
+        "tests",
+        "__tests__",
+        "fixtures",
+    }
+    chunks: list[str] = []
+    total = 0
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in suffixes:
+            continue
+        rel = path.relative_to(root)
+        if any(part in ignored_parts or part.startswith(".") for part in rel.parts[:-1]):
+            continue
+        text = read_text(path, limit=20_000)
+        if not text:
+            continue
+        chunks.append(text)
+        total += len(text)
+        if total >= limit:
+            break
+    return "\n".join(chunks)
+
+
 def detect_media_assets(root: pathlib.Path) -> list[str]:
     image_suffixes = {".svg", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".ico"}
     keywords = ("logo", "icon", "banner", "hero", "screenshot", "cover", "brand", "mark")
@@ -365,6 +397,64 @@ def detect_spdx_from_license_text(text: str) -> str:
     if "bsd 2-clause" in normalized or "redistribution and use in source and binary forms" in normalized and "contributors may be used" not in normalized:
         return "BSD-2-Clause"
     return ""
+
+
+def copyright_from_license_text(text: str) -> dict[str, str]:
+    for line in text.splitlines()[:40]:
+        match = re.search(
+            r"copyright\s*(?:\(c\)|\u00a9)?\s*(?P<year>\d{4}(?:\s*[-,]\s*\d{4})?)?\s*(?P<holder>.+)",
+            line,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            continue
+        holder = re.sub(r"\s+", " ", match.group("holder")).strip(" .")
+        year = re.sub(r"\s+", " ", match.group("year") or "").strip()
+        if holder:
+            return {
+                "notice": re.sub(r"\s+", " ", line).strip(),
+                "year": year,
+                "holder": holder,
+            }
+    return {"notice": "", "year": "", "holder": ""}
+
+
+def author_names(package: dict[str, Any], pyproject: dict[str, Any], cargo: dict[str, Any]) -> list[str]:
+    names: list[str] = []
+
+    def add_author(value: Any) -> None:
+        if isinstance(value, str):
+            name = value.split("<", 1)[0].strip()
+        elif isinstance(value, dict):
+            name = str(value.get("name") or "").strip()
+        else:
+            name = ""
+        if name and name not in names:
+            names.append(name)
+
+    add_author(package.get("author"))
+    maintainers = package.get("maintainers")
+    if isinstance(maintainers, list):
+        for maintainer in maintainers:
+            add_author(maintainer)
+
+    project = pyproject.get("project") if isinstance(pyproject.get("project"), dict) else {}
+    authors = project.get("authors")
+    if isinstance(authors, list):
+        for author in authors:
+            add_author(author)
+    maintainers = project.get("maintainers")
+    if isinstance(maintainers, list):
+        for maintainer in maintainers:
+            add_author(maintainer)
+
+    cargo_package = cargo.get("package") if isinstance(cargo.get("package"), dict) else {}
+    authors = cargo_package.get("authors")
+    if isinstance(authors, list):
+        for author in authors:
+            add_author(author)
+
+    return names
 
 
 def parse_skill_frontmatter(path: pathlib.Path) -> dict[str, str]:
@@ -457,6 +547,7 @@ def detect_license(root: pathlib.Path, package: dict[str, Any], pyproject: dict[
         if (root / name).exists()
     ]
     license_id = ""
+    copyright_info = {"notice": "", "year": "", "holder": ""}
     if isinstance(package.get("license"), str):
         license_id = package["license"]
     elif isinstance(pyproject.get("project"), dict):
@@ -469,10 +560,24 @@ def detect_license(root: pathlib.Path, package: dict[str, Any], pyproject: dict[
         license_id = cargo["package"].get("license", "")
     if not license_id:
         for name in files:
-            license_id = detect_spdx_from_license_text(read_text(root / name))
+            text = read_text(root / name)
+            license_id = detect_spdx_from_license_text(text)
             if license_id:
                 break
-    return {"id": license_id, "files": files}
+    for name in files:
+        copyright_info = copyright_from_license_text(read_text(root / name))
+        if copyright_info["holder"]:
+            break
+    authors = author_names(package, pyproject, cargo)
+    holder = copyright_info["holder"] or (authors[0] if authors else "")
+    return {
+        "id": license_id,
+        "files": files,
+        "copyright_notice": copyright_info["notice"],
+        "copyright_year": copyright_info["year"],
+        "copyright_holder": holder,
+        "authors": authors,
+    }
 
 
 def workspace_members(root: pathlib.Path, package: dict[str, Any], pyproject: dict[str, Any], cargo: dict[str, Any]) -> list[str]:
@@ -530,6 +635,7 @@ def detect_signals(root: pathlib.Path, package: dict[str, Any], pyproject: dict[
     cargo_text = read_text(root / "Cargo.toml")
     go_text = read_text(root / "go.mod")
     readme_text = read_text(root / "README.md", limit=20000)
+    source_text = source_text_sample(root, {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".py", ".rs", ".go"})
 
     docs_generator = has_any(
         root,
@@ -573,12 +679,31 @@ def detect_signals(root: pathlib.Path, package: dict[str, Any], pyproject: dict[
     has_webapp = bool(deps & web_deps) or has_any(root, ["public/index.html"]) or (root / "pages").is_dir() or (root / "app").is_dir() or (root / "src" / "routes").is_dir()
     has_api_service = openapi or graphql or bool(deps & api_deps) or bool(py_deps & py_api_deps) or any(name in cargo_text for name in rust_api_deps) or any(name in go_text for name in go_api_deps) or (root / "routes").is_dir() or (root / "controllers").is_dir()
 
-    has_mcp = (
+    mcp_dependency = (
         "@modelcontextprotocol/sdk" in deps
         or "mcp" in py_deps
         or "modelcontextprotocol" in py_deps
-        or bool(re.search(r"\bMCP\b|model context protocol", readme_text, flags=re.IGNORECASE))
     )
+    mcp_source_related = bool(
+        re.search(
+            r"@modelcontextprotocol/sdk/server|from\s+mcp\.server|FastMCP|McpServer|model context protocol",
+            source_text,
+            flags=re.IGNORECASE,
+        )
+    )
+    mcp_server_source = bool(
+        re.search(
+            r"StdioServerTransport|SSEServerTransport|StreamableHTTPServerTransport|"
+            r"server\.connect\s*\(|\.connect\s*\(\s*new\s+\w*ServerTransport|"
+            r"FastMCP\s*\(|\.run\s*\(\s*transport|mcp\.run\s*\(",
+            source_text,
+            flags=re.IGNORECASE,
+        )
+    )
+    mcp_related = mcp_dependency or mcp_source_related or bool(re.search(r"\bMCP\b|model context protocol", readme_text, flags=re.IGNORECASE))
+    has_mcp = mcp_dependency and mcp_server_source
+    if not has_mcp and not (deps or py_deps):
+        has_mcp = mcp_server_source
     has_extension = bool(package.get("engines", {}).get("vscode") if isinstance(package.get("engines"), dict) else False) or "contributes" in package or has_any(root, ["plugin.xml"]) or bool(read_json(root / "manifest.json").get("manifest_version"))
     has_desktop_mobile = has_any(root, ["tauri.conf.json", "capacitor.config.ts", "capacitor.config.js", "pubspec.yaml"]) or (root / "src-tauri").is_dir() or (root / "android").is_dir() or (root / "ios").is_dir() or "electron" in deps or "react-native" in deps
     has_template = has_any(root, [".github/template.yml", ".github/template.yaml", "cookiecutter.json"]) or bool(re.search(r"\b(template|starter|boilerplate)\b", root.name, flags=re.IGNORECASE))
@@ -613,6 +738,7 @@ def detect_signals(root: pathlib.Path, package: dict[str, Any], pyproject: dict[
         "dataset_files": dataset_files,
         "skill_md": skill_md,
         "skill_collection": bool(skill_inventory["is_collection"]),
+        "mcp_related": mcp_related,
         "mcp": has_mcp,
         "docs_generator": docs_generator,
         "webapp": has_webapp,

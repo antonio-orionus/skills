@@ -2,6 +2,10 @@
 
 README type is selected by primary reader plus first successful action.
 
+The inspector is a triage tool, not the final authority. The agent must confirm
+the classification against repository evidence before choosing the README
+structure.
+
 ## Priority
 
 1. monorepo
@@ -30,6 +34,18 @@ README type is selected by primary reader plus first successful action.
 
 Dockerfile alone does not make a container README. Treat Docker as deployment unless no stronger app, service, library, CLI, action, chart, module, MCP, skill, or docs signal exists.
 
+## MCP
+
+Do not classify a project as `mcp-server` from the word "MCP" alone. Use
+`mcp-server` only when the repo implements a server that a client configures and
+calls. Strong signals include MCP server SDK imports, server transport setup,
+`McpServer`, `FastMCP`, `StdioServerTransport`, or `server.connect(...)` in
+product source.
+
+A package that exposes imports, exports, helpers, schemas, or adapters for MCP
+servers is usually `lib-or-sdk`. Its first successful action is install/import,
+not configure an MCP client.
+
 ## Agent Skills
 
 Use `readme_type = agent-skill` for both one skill and a collection of skills. When `artifact_type = agent-skill-collection`, compose for a reader choosing from multiple skills:
@@ -40,4 +56,8 @@ Use `readme_type = agent-skill` for both one skill and a collection of skills. W
 
 ## Ambiguity
 
-If candidates disagree, ask one question that contrasts first actions. Example: "Is this README primarily for running the web UI, or for calling and operating the backend API?"
+If candidates disagree, first do a fresh classification pass from repo facts. If
+your environment supports subagents, use one for an independent classification
+review on high-impact ambiguity. Ask one question only when the repo cannot
+resolve the first action. Example: "Is this README primarily for running the web
+UI, or for calling and operating the backend API?"

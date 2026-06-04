@@ -13,6 +13,7 @@ Run `scripts/validate.py README.md --repo .` when available.
 - Registry badges match detected ecosystems.
 - CI badge exists only when a workflow exists.
 - License badge exists only when a license source exists.
+- License copyright or author credentials appear only when backed by a license source or package metadata.
 - README claims match repository facts from `scripts/inspect.py`.
 - Agent skill collections include a skill index sourced from detected `SKILL.md` files.
 

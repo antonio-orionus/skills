@@ -8,7 +8,7 @@ The existing README is context, not source of truth. Keep useful verified conten
 
 ## Internal Evidence Checklist
 
-- Manifests and package metadata: names, descriptions, scripts, exports, bins, engines, dependencies, workspace members, license, and publication intent.
+- Manifests and package metadata: names, descriptions, scripts, exports, bins, engines, dependencies, workspace members, license, author/copyright credentials, and publication intent.
 - Source surfaces: public modules, CLIs, routes, tools, schemas, charts, models, datasets, plugin manifests, or skill metadata.
 - Working examples: examples, tests, snapshots, docs, generated references, sample configs, and demo files.
 - Operations evidence: workflows, Docker/compose files, deployment configs, env examples, release artifacts, and build/test scripts.

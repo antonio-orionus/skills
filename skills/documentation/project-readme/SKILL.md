@@ -22,13 +22,14 @@ Use this skill to build README files from repository facts. README structure is 
    [ -n "$SCRIPT" ] && python3 "$SCRIPT" . || echo "Script not found; inspect manifests and repo facts manually."
    ```
 
-3. Use the inspector output:
+3. Review the inspector output, then make the final README type decision:
    - `ecosystem` controls install commands, package metadata, badges, dev commands, and language-specific examples.
-   - `readme_type` controls structure, first screen, section order, and reader journey.
-   - `readme_type_candidates` is the ambiguity set. If `readme_type` is `unknown` and candidates exist, ask one clarifying question based on the candidate first actions. If work must proceed without an answer, choose the type whose first successful action is best supported by repo facts.
+   - `readme_type` is a script-generated starting point, not final authority. Confirm it against the primary reader, first successful action, public API, source layout, examples, and package metadata before choosing the structure.
+   - `readme_type_candidates` is the ambiguity set. If candidates disagree or the first successful action points elsewhere, choose the type best supported by repo facts and briefly note the override in your working notes. Ask one clarifying question only when repo facts cannot resolve the reader journey.
    - `agent_skills` lists detected skill files and plugin manifests when `readme_type` is `agent-skill`; use it to build collection indexes and validation sections.
    - `media_assets` lists detected logo, icon, banner, or screenshot candidates; use them only when they clearly represent the project.
    - `readme_variants` lists sibling README variants for multilingual workflows.
+   - If classification affects the whole README structure and remains ambiguous, use a fresh classification pass or subagent when available; otherwise do a separate manual pass before writing.
 
 4. Load only the needed modules:
    - Ecosystem: `ecosystems/<ecosystem>.md`, or each ecosystem when `ecosystem` is `mixed`.
@@ -42,6 +43,7 @@ Use this skill to build README files from repository facts. README structure is 
    - Reader context: `references/reader-context.md` when audience context matters or the README is OSS, personal, internal, or config-oriented.
    - Markdown mechanics: `references/markdown-mechanics.md` when changing links, anchors, tables, alerts, code fences, images, or README variants.
    - Section modules in `sections/` only for sections the README will include.
+   - License section: `sections/license.md` when the README includes license terms or copyright credentials.
 
 5. For `rewrite`, run a project research pass before drafting. Treat the old README as context only: it may be stale, incomplete, wrong, or missing important capabilities. Derive claims from manifests, exports, source files, examples, tests, docs, workflows, releases, package metadata, and other repository evidence.
 
@@ -69,9 +71,11 @@ Use this skill to build README files from repository facts. README structure is 
 
 - Do not treat language ecosystem as README type. A Node repo may be a library, CLI, web app, GitHub Action, VS Code extension, MCP server, docs site, template, or monorepo.
 - Dockerfile is a deployment signal unless the container image is clearly the product.
+- Do not let a keyword override the reader journey. A library used by MCP servers is `lib-or-sdk`, not `mcp-server`, unless the repo actually implements and runs an MCP server.
 - Badges are emitted only when the corresponding fact is real.
 - Development commands must match the detected package manager and existing scripts; public registry install examples should default to correct alternatives for common package managers.
 - Code examples must match real exports, routes, commands, tools, charts, modules, datasets, models, or files.
+- License sections should include author or copyright-holder credentials when the license file or package metadata proves them; otherwise link the license plainly and do not invent ownership.
 - README rewrites always require internal project research before drafting; never assume the old README is accurate or complete.
 - Incumbent comparisons must use cited external sources or repo-named alternatives; omit comparison sections when they would force guesswork.
 - Multilingual README edits must preserve code, commands, paths, links, badges, and selectors unless the user explicitly asks to rewrite them.

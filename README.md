@@ -96,4 +96,4 @@ uv run --with pytest pytest skills/documentation/project-readme/scripts/tests -q
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) (c) 2026 Antonio Orionus

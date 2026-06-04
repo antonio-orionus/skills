@@ -70,8 +70,56 @@ def test_classifies_github_action(make_repo):
 
 
 def test_classifies_mcp_server(make_repo):
-    root = make_repo({"package.json": {"name": "mcp-x", "dependencies": {"@modelcontextprotocol/sdk": "latest"}}})
-    assert ins.inspect_repo(root)["readme_type"] == "mcp-server"
+    root = make_repo(
+        {
+            "package.json": {"name": "mcp-x", "dependencies": {"@modelcontextprotocol/sdk": "latest"}},
+            "src/server.ts": (
+                "import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';\n"
+                "import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';\n"
+                "const server = new McpServer({ name: 'x', version: '1.0.0' });\n"
+                "await server.connect(new StdioServerTransport());\n"
+            ),
+        }
+    )
+    data = ins.inspect_repo(root)
+    assert data["readme_type"] == "mcp-server"
+    assert data["signals"]["mcp"] is True
+
+
+def test_mcp_related_library_is_not_classified_as_mcp_server(make_repo):
+    root = make_repo(
+        {
+            "package.json": {
+                "name": "mcp-toolkit",
+                "exports": "./index.js",
+                "dependencies": {"@modelcontextprotocol/sdk": "latest"},
+            },
+            "README.md": "# mcp-toolkit\n\nA library used by MCP servers.\n",
+            "index.js": "export function createTool() { return {}; }\n",
+        }
+    )
+    data = ins.inspect_repo(root)
+    assert data["readme_type"] == "lib-or-sdk"
+    assert data["signals"]["mcp_related"] is True
+    assert data["signals"]["mcp"] is False
+    assert data["readme_type_signals"]["mcp_server"] is False
+
+
+def test_mcp_server_type_import_does_not_override_library(make_repo):
+    root = make_repo(
+        {
+            "package.json": {
+                "name": "mcp-types",
+                "exports": "./index.js",
+                "dependencies": {"@modelcontextprotocol/sdk": "latest"},
+            },
+            "index.js": "import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';\nexport { McpServer };\n",
+        }
+    )
+    data = ins.inspect_repo(root)
+    assert data["readme_type"] == "lib-or-sdk"
+    assert data["signals"]["mcp_related"] is True
+    assert data["signals"]["mcp"] is False
 
 
 def test_classifies_terraform_module(make_repo):
@@ -150,8 +198,20 @@ def test_detects_media_assets_and_readme_variants(make_repo):
 
 
 def test_detects_license_id_from_license_file(make_repo):
-    root = make_repo({"LICENSE": "MIT License\n\nCopyright (c)\n"})
-    assert ins.inspect_repo(root)["license"]["id"] == "MIT"
+    root = make_repo({"LICENSE": "MIT License\n\nCopyright (c) 2026 Antonio Orionus\n"})
+    license_info = ins.inspect_repo(root)["license"]
+    assert license_info["id"] == "MIT"
+    assert license_info["copyright_notice"] == "Copyright (c) 2026 Antonio Orionus"
+    assert license_info["copyright_year"] == "2026"
+    assert license_info["copyright_holder"] == "Antonio Orionus"
+
+
+def test_detects_license_author_from_package_metadata(make_repo):
+    root = make_repo({"package.json": {"name": "x", "license": "MIT", "author": "Antonio Orionus <a@example.com>"}})
+    license_info = ins.inspect_repo(root)["license"]
+    assert license_info["id"] == "MIT"
+    assert license_info["copyright_holder"] == "Antonio Orionus"
+    assert license_info["authors"] == ["Antonio Orionus"]
 
 
 def test_classifies_model_dataset_research(make_repo):

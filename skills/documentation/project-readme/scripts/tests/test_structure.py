@@ -65,6 +65,7 @@ def test_required_skill_files_exist():
         "sections/mcp-client-config.md",
         "sections/workspace-index.md",
         "sections/deployment.md",
+        "sections/license.md",
         "sections/reproducibility.md",
         "sections/model-card-fields.md",
         "sections/dataset-card-fields.md",

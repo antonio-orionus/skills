@@ -12,7 +12,7 @@ Use this skill to produce truthful, polished README files that work well both on
 1. Inspect the repository before writing. Find and run the bundled inspect script:
 
    ```bash
-   SCRIPT=$(find ~/.claude -name "inspect_readme_context.py" -path "*/npm-github-readme/*" 2>/dev/null | head -1)
+   SCRIPT=$(find ~ -maxdepth 6 -name "inspect_readme_context.py" -path "*/npm-github-readme/*" 2>/dev/null | head -1)
    [ -n "$SCRIPT" ] && python3 "$SCRIPT" . || echo "Script not found — inspect package.json, lockfiles, workflows, and existing README manually."
    ```
 
@@ -25,7 +25,7 @@ Use this skill to produce truthful, polished README files that work well both on
 5. Validate before finishing:
 
    ```bash
-   SCRIPT=$(find ~/.claude -name "validate_readme.py" -path "*/npm-github-readme/*" 2>/dev/null | head -1)
+   SCRIPT=$(find ~ -maxdepth 6 -name "validate_readme.py" -path "*/npm-github-readme/*" 2>/dev/null | head -1)
    [ -n "$SCRIPT" ] && python3 "$SCRIPT" README.md || echo "Validator not found — check manually against the quality bar."
    ```
 

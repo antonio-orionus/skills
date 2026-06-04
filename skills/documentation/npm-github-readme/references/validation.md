@@ -33,7 +33,7 @@ Use this checklist before finishing README work.
 Run the bundled validator:
 
 ```bash
-SCRIPT=$(find ~/.claude -name "validate_readme.py" -path "*/npm-github-readme/*" 2>/dev/null | head -1)
+SCRIPT=$(find ~ -maxdepth 6 -name "validate_readme.py" -path "*/npm-github-readme/*" 2>/dev/null | head -1)
 [ -n "$SCRIPT" ] && python3 "$SCRIPT" README.md
 ```
 

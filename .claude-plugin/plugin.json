@@ -1,6 +1,7 @@
 {
   "name": "orionus-skills",
   "skills": [
-    "./skills/documentation/project-readme"
+    "./skills/documentation/project-readme",
+    "./skills/release/github-release-integrity"
   ]
 }

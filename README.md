@@ -1,6 +1,6 @@
 # Agent Skills
 
-A collection of documentation skills for AI coding agents, following the [Agent Skills](https://agentskills.io/home) format. It is for people who want to install these skills into an agent, or maintain the skill files in this repository.
+A collection of skills for AI coding agents, following the [Agent Skills](https://agentskills.io/home) format. It is for people who want to install these skills into an agent, or maintain the skill files in this repository.
 
 Fastest start:
 
@@ -13,6 +13,7 @@ npx skills add antonio-orionus/skills
 | Skill | Description |
 |-------|-------------|
 | [`project-readme`](skills/documentation/project-readme/SKILL.md) | Create, update, rewrite, or validate truthful README files for any project archetype |
+| [`github-release-integrity`](skills/release/github-release-integrity/SKILL.md) | Decide, implement, or debug GitHub Release asset integrity, immutable releases, attestations, checksums, and stable release asset URLs |
 
 ## Try `project-readme`
 
@@ -69,6 +70,7 @@ ln -s /path/to/skills/skills /path/to/your/project/.claude/skills
 | Path | Contents |
 |------|----------|
 | [`skills/documentation/project-readme/`](skills/documentation/project-readme/) | Archetype-driven README composer with inspector, validator, ecosystem modules, project-type modules, section modules, and references |
+| [`skills/release/github-release-integrity/`](skills/release/github-release-integrity/) | GitHub Release integrity guidance for immutable releases, workflow provenance, checksums, and asset verification |
 | [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json) | Claude Code plugin manifest |
 
 ## Validate

@@ -131,6 +131,12 @@ describe('claims CLI', () => {
 		expect(result.err).not.toContain('still held')
 	})
 
+	it('releases freely over a claim whose issue closed', async () => {
+		expect(run('local_a', 'claim', '#1').code).toBe(0)
+		await setGh({issues: [{number: 1, title: 'free', body: '', state: 'closed'}], prs: []})
+		expect(run('local_b', 'release', '#1').code).toBe(0)
+	})
+
 	it("says when release left another session's claim in place", () => {
 		expect(run('local_a', 'claim', '#1').code).toBe(0)
 		const result = run('local_b', 'release', '#1')

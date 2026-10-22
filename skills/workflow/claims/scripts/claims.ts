@@ -180,9 +180,10 @@ function main(argv: string[]): number {
 			const force = switchOn(args, '--force')
 			const me = owner()
 			const targets = args.length > 0 ? args.map(parseTarget) : null
+			const closed = closedTargets()
 			const out = withStore(store => {
-				// Expired claims are nobody's, so they never count as kept.
-				const r = release(prune(store, now, new Set()), targets, me, force)
+				// Expired claims and claims on closed targets are nobody's, so they never count as kept.
+				const r = release(prune(store, now, closed), targets, me, force)
 				return {store: r.store, result: r}
 			})
 			console.log(out.released.length > 0 ? `released ${out.released.join(' ')}` : 'released nothing')

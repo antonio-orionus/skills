@@ -2,6 +2,7 @@
   "name": "orionus-skills",
   "skills": [
     "./skills/documentation/project-readme",
-    "./skills/release/github-release-integrity"
+    "./skills/release/github-release-integrity",
+    "./skills/adapted/triage"
   ]
 }

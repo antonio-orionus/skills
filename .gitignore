@@ -1,3 +1,4 @@
 .ref/
 skills/documentation/project-readme/scripts/__pycache__/inspect.cpython-312.pyc
 skills/documentation/project-readme/scripts/__pycache__/validate.cpython-312.pyc
+__pycache__/

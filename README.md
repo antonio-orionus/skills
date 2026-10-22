@@ -14,6 +14,7 @@ npx skills add antonio-orionus/skills
 |-------|-------------|
 | [`project-readme`](skills/documentation/project-readme/SKILL.md) | Create, update, rewrite, or validate truthful README files for any project archetype |
 | [`github-release-integrity`](skills/release/github-release-integrity/SKILL.md) | Decide, implement, or debug GitHub Release asset integrity, immutable releases, attestations, checksums, and stable release asset URLs |
+| [`triage`](skills/adapted/triage/SKILL.md) | Adapted from [mattpocock/skills](https://github.com/mattpocock/skills/tree/main/skills/engineering/triage): move issues through triage roles, without the required AI disclaimer on every comment |
 
 ## Try `project-readme`
 
@@ -71,7 +72,34 @@ ln -s /path/to/skills/skills /path/to/your/project/.claude/skills
 |------|----------|
 | [`skills/documentation/project-readme/`](skills/documentation/project-readme/) | Archetype-driven README composer with inspector, validator, ecosystem modules, project-type modules, section modules, and references |
 | [`skills/release/github-release-integrity/`](skills/release/github-release-integrity/) | GitHub Release integrity guidance for immutable releases, workflow provenance, checksums, and asset verification |
+| [`skills/adapted/`](skills/adapted/) | Skills copied from another repository and changed; each keeps its source's `LICENSE` and pins its upstream commit |
+| [`scripts/upstream.py`](scripts/upstream.py) | Lists and merges upstream changes into adapted skills |
 | [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json) | Claude Code plugin manifest |
+
+## Adapted skills
+
+A skill under `skills/adapted/` is another author's skill with a few changes. Its `SKILL.md` frontmatter pins the source:
+
+```yaml
+metadata:
+  upstream-repo: mattpocock/skills
+  upstream-path: skills/engineering/triage
+  upstream-commit: <sha the copy was taken or last merged at>
+```
+
+See what changed upstream since each pin, and which skills were added there:
+
+```bash
+python3 scripts/upstream.py check --new
+```
+
+Take the upstream changes into a copy with a three-way merge. Edits on both sides are kept, overlapping edits get conflict markers, and the pin moves to upstream's latest commit:
+
+```bash
+python3 scripts/upstream.py merge triage
+```
+
+Keep each copy's changes small, and put project-specific rules in that project's `AGENTS.md` rather than in the copy, so upstream merges stay clean.
 
 ## Validate
 
@@ -85,7 +113,7 @@ python3 skills/documentation/project-readme/scripts/validate.py README.md --repo
 Run the script tests:
 
 ```bash
-uv run --with pytest pytest skills/documentation/project-readme/scripts/tests -q
+uv run --with pytest pytest skills/documentation/project-readme/scripts/tests scripts/tests -q
 ```
 
 ## Contributing

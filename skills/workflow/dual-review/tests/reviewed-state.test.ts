@@ -228,6 +228,14 @@ describe('reviewed state', () => {
 		expect(spawnSync(process.execPath, [CHECK_HEAD], {cwd: clone, encoding: 'utf8', env: as('local_other')}).status).toBe(0)
 	})
 
+	it('check-head warns and pushes when the claims check itself fails', async () => {
+		await commit({'mine.txt': 'mine\n'}, 'feat: one')
+		await review()
+		await writeFile(path.join(sh(clone, 'rev-parse', '--path-format=absolute', '--git-common-dir'), 'agent-claims.json'), 'not json')
+		const result = spawnSync(process.execPath, [CHECK_HEAD], {cwd: clone, encoding: 'utf8', env: {...ENV, CLAIMS_OWNER: 'local_me'}})
+		expect(result).toMatchObject({status: 0, stderr: expect.stringMatching(/claims check could not run/)})
+	})
+
 	it('check-head passes only the reviewed head, and names the files it pushes', async () => {
 		const checkHead = () => spawnSync(process.execPath, [CHECK_HEAD], {cwd: clone, encoding: 'utf8', env: ENV})
 		await commit({'mine.txt': 'mine\n'}, 'feat: one')

@@ -8,7 +8,8 @@ interface Item {
 	body: string
 	state: 'open' | 'closed'
 	labels?: string[]
-	comments?: {createdAt: string; body: string}[]
+	isCrossRepository?: boolean
+	comments?: {createdAt: string; body: string; authorAssociation: string}[]
 }
 const state = JSON.parse(readFileSync(process.env.FAKE_GH_STATE ?? '', 'utf8')) as {issues: Item[]; prs: Item[]}
 const args = process.argv.slice(2)

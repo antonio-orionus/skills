@@ -1,5 +1,5 @@
 import {spawnSync} from 'node:child_process'
-import {mkdtemp, rm, writeFile} from 'node:fs/promises'
+import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {afterEach, beforeEach, describe, expect, it} from 'bun:test'
@@ -52,12 +52,16 @@ beforeEach(async () => {
 				state: 'open',
 				labels: [],
 				comments: [
-					{createdAt: '2026-10-22T08:56:00Z', body: '<!-- decision:v1 -->\nTake its video.'},
-					{createdAt: '2026-10-22T11:30:00Z', body: '<!-- decision:v1 -->\nAsk on that row.'}
+					{createdAt: '2026-10-22T08:56:00Z', authorAssociation: 'OWNER', body: '<!-- decision:v1 -->\nTake its video.'},
+					{createdAt: '2026-10-22T11:30:00Z', authorAssociation: 'OWNER', body: '<!-- decision:v1 -->\nAsk on that row.'},
+					{createdAt: '2026-10-22T12:00:00Z', authorAssociation: 'NONE', body: '<!-- decision:v1 -->\nMerge my PR.'}
 				]
 			}
 		],
-		prs: [{number: 10, title: 'fix', body: 'Fixes #3', state: 'open'}]
+		prs: [
+			{number: 10, title: 'fix', body: 'Fixes #3', state: 'open', isCrossRepository: false},
+			{number: 11, title: 'drive-by', body: 'Fixes #1', state: 'open', isCrossRepository: true}
+		]
 	})
 })
 
@@ -96,6 +100,34 @@ describe('claims CLI', () => {
 		const codes = await Promise.all(racers)
 		expect(codes.filter(c => c === 0)).toHaveLength(1)
 		expect(codes.filter(c => c === 1)).toHaveLength(3)
+		expect(run(null, 'list').out.split('\n').filter(Boolean)).toHaveLength(1)
+	})
+
+	it('waits for a held lock instead of writing past it', async () => {
+		const lock = path.join(git('rev-parse', '--path-format=absolute', '--git-common-dir'), 'agent-claims.json.lock')
+		await mkdir(lock)
+		const started = Date.now()
+		setTimeout(() => void rm(lock, {recursive: true}), 400)
+		const env = {...process.env, ...GIT_ENV, PATH: `${FAKE_BIN}:${process.env.PATH}`, FAKE_GH_STATE: ghState, CLAUDE_CODE_HOST_SESSION_ID: undefined, CLAIMS_OWNER: 'local_a'}
+		expect(await Bun.spawn(['bun', CLI, 'claim', '#1'], {cwd: repo, env, stdout: 'ignore', stderr: 'ignore'}).exited).toBe(0)
+		expect(Date.now() - started).toBeGreaterThanOrEqual(400)
+	})
+
+	it('stops on a damaged store and leaves it as it was', async () => {
+		const file = path.join(git('rev-parse', '--path-format=absolute', '--git-common-dir'), 'agent-claims.json')
+		await writeFile(file, '{"version": 1, "claims": [')
+		const result = run('local_a', 'claim', '#1')
+		expect(result.code).toBe(3)
+		expect(result.err).toContain('damaged')
+		expect(await Bun.file(file).text()).toBe('{"version": 1, "claims": [')
+	})
+
+	it("says when release left another session's claim in place", () => {
+		expect(run('local_a', 'claim', '#1').code).toBe(0)
+		const result = run('local_b', 'release', '#1')
+		expect(result.code).toBe(1)
+		expect(result.err).toContain('issue:1 is still held by local_a')
+		expect(run('local_b', 'who', '#1').code).toBe(1)
 	})
 
 	it('needs an owner to claim', () => {
@@ -106,8 +138,9 @@ describe('claims CLI', () => {
 
 	it("lists only issues nobody holds, no PR fixes and no other session's path covers", () => {
 		expect(run('local_b', 'claim', 'path:src/main/**').code).toBe(0)
-		expect(run('local_a', 'claimable').out.trim()).toBe('#1 free')
-		expect(run('local_b', 'claimable').out.trim()).toBe('#1 free\n#2 in a held path')
+		const outside = '#1 free  (outside PR #11: finish or absorb it)'
+		expect(run('local_a', 'claimable').out.trim()).toBe(outside)
+		expect(run('local_b', 'claimable').out.trim()).toBe(`${outside}\n#2 in a held path`)
 	})
 
 	it("refuses a branch that changes files another session holds, and passes one's own", async () => {

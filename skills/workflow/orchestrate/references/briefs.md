@@ -10,7 +10,8 @@ these fixes and owns the backlogs. <Why this batch exists: e.g. "the user warns 
 are unverified">. In flight right now, so don't write these files: <#PR: files>. Rules:
 never edit the backlogs yourself; report any out-of-scope bug in your final message; no AI
 attribution. Goal is <merge | a published package>, not an app release; don't stop to ask before
-pushing.
+pushing. Claimed for you: <#N, path:globs>. Claim anything else before you touch it (`claims` skill);
+when a claim is refused, report its holder instead of working around it.
 ```
 
 ## Verify only (a subagent, not a session)

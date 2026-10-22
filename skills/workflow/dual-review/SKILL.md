@@ -1,6 +1,6 @@
 ---
 name: dual-review
-description: Local cross-checked code review of the current branch by the Claude and Codex CLIs, each verifying the other's findings, on their logged-in subscriptions. Use before opening a pull request, for a review round on fix commits, or before pushing a reviewed branch (check-head refuses a push that differs from what was reviewed or undoes work on the default branch).
+description: Local cross-checked code review of the current branch by the Claude and Codex CLIs, each verifying the other's findings, on their logged-in subscriptions. Use before opening a pull request, for a review round on fix commits, or before pushing a reviewed branch (check-head refuses a push that differs from what was reviewed, undoes work on the default branch, or changes files another session claims).
 ---
 
 # Dual review

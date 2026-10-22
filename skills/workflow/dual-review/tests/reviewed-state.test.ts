@@ -217,6 +217,17 @@ describe('reviewed state', () => {
 		expect(await check()).toEqual(changed)
 	})
 
+	it("check-head refuses a reviewed head that changes files another session claims", async () => {
+		const claims = path.join(import.meta.dir, '..', '..', 'claims', 'scripts', 'claims.ts')
+		const as = (owner: string) => ({...ENV, CLAUDE_CODE_HOST_SESSION_ID: undefined, CLAIMS_OWNER: owner})
+		await commit({'mine.txt': 'mine\n'}, 'feat: one')
+		await review()
+		expect(spawnSync(process.execPath, [claims, 'claim', 'path:mine.txt', '--note', 'queue fix'], {cwd: clone, encoding: 'utf8', env: as('local_other')}).status).toBe(0)
+		const mine = spawnSync(process.execPath, [CHECK_HEAD], {cwd: clone, encoding: 'utf8', env: as('local_me')})
+		expect(mine).toMatchObject({status: 1, stderr: expect.stringMatching(/mine\.txt\s+held by local_other/)})
+		expect(spawnSync(process.execPath, [CHECK_HEAD], {cwd: clone, encoding: 'utf8', env: as('local_other')}).status).toBe(0)
+	})
+
 	it('check-head passes only the reviewed head, and names the files it pushes', async () => {
 		const checkHead = () => spawnSync(process.execPath, [CHECK_HEAD], {cwd: clone, encoding: 'utf8', env: ENV})
 		await commit({'mine.txt': 'mine\n'}, 'feat: one')

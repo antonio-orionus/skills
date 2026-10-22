@@ -17,6 +17,7 @@ npx skills add antonio-orionus/skills
 | [`dual-review`](skills/workflow/dual-review/SKILL.md) | Local pre-PR review: Claude and Codex review a branch, then cross-check each other's findings; `check-head` refuses a push that differs from what was reviewed |
 | [`pr-review-watch`](skills/workflow/pr-review-watch/SKILL.md) | Trigger, wait for and read a CodeRabbit review on a GitHub PR without polling loops |
 | [`orchestrate`](skills/workflow/orchestrate/SKILL.md) | Turn a backlog into merged PRs by verifying candidates and dispatching other agent sessions |
+| [`claims`](skills/workflow/claims/SKILL.md) | Record which agent session owns an issue, PR or files in a clone, list free issues, and read recorded decisions |
 | [`find-test-gaps`](skills/testing/find-test-gaps/SKILL.md) | Find missing or weak tests across a whole application, with extra checks for Electron apps |
 | [`triage`](skills/adapted/triage/SKILL.md) | Adapted from [mattpocock/skills](https://github.com/mattpocock/skills/tree/main/skills/engineering/triage): move issues through triage roles; every post opens with a neutral agent marker (`> *Posted by an agent.*` plus a hidden `<!-- agent:v1 -->`) instead of the AI disclaimer |
 

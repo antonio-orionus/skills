@@ -20,7 +20,9 @@ const verdictOutputSchema = v.object({verdicts: v.array(verdictSchema)})
 
 export type Finding = v.Infer<typeof findingSchema>
 export type Verdict = v.Infer<typeof verdictSchema>
-export type Engine = 'claude' | 'codex'
+// Ranked by strength: Claude (Opus) first, Codex second, the OpenCode fallback
+// last. Roles follow the ranking; see verifierFor and resolveCandidates.
+export type Engine = 'claude' | 'codex' | 'opencode'
 
 export type OutputJsonSchema = v.JsonSchema
 
@@ -116,7 +118,8 @@ const rank = (f: Finding): number => SEVERITIES.indexOf(f.severity) - f.confiden
 // flagging the same lines is not a shortcut: overlapping locations do not prove
 // they made the same claim. With Codex unavailable Claude checks its own
 // reports in a fresh pass, the weaker substitute the report says it is.
-export function verifierFor(c: Candidate, codexAvailable: boolean): Engine {
+// OpenCode, the weakest model, never checks anything: Claude checks its reports.
+export function verifierFor(c: Candidate, codexAvailable: boolean): 'claude' | 'codex' {
 	return c.engine === 'claude' && codexAvailable ? 'codex' : 'claude'
 }
 
@@ -133,8 +136,126 @@ const CLAUDE_TOOLS = ['Read', 'Grep', 'Glob', 'Bash(git diff:*)', 'Bash(git log:
 // PreToolUse hook that rewrites commands (one that turns `git diff` into
 // `wrapper git diff`) leaves them outside the allow-list, so the lane is denied
 // the diff it reviews, and no other hook belongs in a review either.
-export function claudeArgs(prompt: string, schema: OutputJsonSchema): string[] {
-	return ['-p', '--output-format', 'json', '--json-schema', JSON.stringify(schema), '--settings', JSON.stringify({disableAllHooks: true}), '--permission-mode', 'default', '--allowedTools', ...CLAUDE_TOOLS, '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', '--', prompt]
+export function claudeArgs(prompt: string, schema: OutputJsonSchema, model: string): string[] {
+	return ['-p', '--model', model, '--output-format', 'json', '--json-schema', JSON.stringify(schema), '--settings', JSON.stringify({disableAllHooks: true}), '--permission-mode', 'default', '--allowedTools', ...CLAUDE_TOOLS, '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', '--', prompt]
+}
+
+export const CLAUDE_MODEL_ENV = 'DUAL_REVIEW_CLAUDE_MODEL'
+export const FALLBACK_MODEL_ENV = 'DUAL_REVIEW_FALLBACK_MODEL'
+const DEFAULT_CLAUDE_MODEL = 'opus'
+const DEFAULT_FALLBACK_MODEL = 'openrouter/xiaomi/mimo-v2.6-pro'
+
+type Env = Readonly<Record<string, string | undefined>>
+
+// The model every Claude lane and check runs on, pinned so a CLI default never
+// quietly swaps the strongest reviewer for a weaker one.
+export const claudeModelFrom = (env: Env): string => env[CLAUDE_MODEL_ENV]?.trim() || DEFAULT_CLAUDE_MODEL
+
+// The OpenCode model that takes Codex's reviewer slot when Codex is unavailable;
+// null when the fallback is switched off with `none`.
+export function fallbackModelFrom(env: Env): string | null {
+	const value = env[FALLBACK_MODEL_ENV]?.trim() || DEFAULT_FALLBACK_MODEL
+	return value.toLowerCase() === 'none' ? null : value
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
+
+const ANSI = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g
+
+// Index of the brace closing the object opened at `start`, skipping braces in
+// JSON strings; -1 when it never closes.
+function closingBrace(text: string, start: number): number {
+	let depth = 0
+	let inString = false
+	let escaped = false
+	for (let i = start; i < text.length; i++) {
+		const ch = text[i]
+		if (inString) {
+			if (escaped) escaped = false
+			else if (ch === '\\') escaped = true
+			else if (ch === '"') inString = false
+		} else if (ch === '"') inString = true
+		else if (ch === '{') depth++
+		else if (ch === '}' && --depth === 0) return i
+	}
+	return -1
+}
+
+// The last top-level JSON object in a model's free-text reply: OpenCode has no
+// structured-output flag, so the reply may carry ANSI codes, tool-call progress
+// lines, prose and a ```json fence around the object. A brace in prose that
+// does not open valid JSON is skipped. undefined when there is none.
+export function lastJsonObject(text: string): unknown {
+	const clean = text.replace(ANSI, '')
+	let last: unknown
+	for (let i = clean.indexOf('{'); i !== -1; ) {
+		const end = closingBrace(clean, i)
+		if (end !== -1) {
+			try {
+				last = JSON.parse(clean.slice(i, end + 1))
+				i = clean.indexOf('{', end + 1)
+				continue
+			} catch {
+				// Not JSON from this brace: try the next one.
+			}
+		}
+		i = clean.indexOf('{', i + 1)
+	}
+	return last
+}
+
+export interface OpencodeOutput {
+	// The model's reply: its text parts, or the raw output when it printed no events.
+	text: string
+	sessionId: string | null
+	error: string | null
+}
+
+// Reads `opencode run --format json`: one event per line ({type, sessionID,
+// part}); the reply is in the `text` events' parts, an `error` event carries a
+// failure such as an unknown model. Lines that are not events are ignored.
+export function parseOpencodeOutput(stdout: string): OpencodeOutput {
+	const texts = new Map<string, string>()
+	let sessionId: string | null = null
+	let error: string | null = null
+	let events = 0
+	for (const line of stdout.split(/\r?\n/)) {
+		if (!line.trim().startsWith('{')) continue
+		let event: unknown
+		try {
+			event = JSON.parse(line)
+		} catch {
+			continue
+		}
+		if (!isRecord(event) || typeof event.type !== 'string') continue
+		events++
+		if (sessionId === null && typeof event.sessionID === 'string') sessionId = event.sessionID
+		if (event.type === 'error') error = isRecord(event.error) && typeof event.error.message === 'string' ? event.error.message : JSON.stringify(event.error ?? event)
+		const part = event.part
+		if (event.type === 'text' && isRecord(part) && typeof part.text === 'string') texts.set(typeof part.id === 'string' ? part.id : `#${texts.size}`, part.text)
+	}
+	return {text: events === 0 ? stdout : [...texts.values()].join('\n'), sessionId, error}
+}
+
+// What became of the OpenCode reviewer when Codex was unavailable: it reviewed,
+// it was switched off, its binary was missing, it failed to run (Claude then
+// stands in, as without a fallback), or it never returned a valid review (a
+// failed reviewer).
+export type Fallback = {status: 'reviewed'; model: string} | {status: 'disabled'} | {status: 'missing' | 'failed' | 'invalid'; model: string; detail: string}
+
+function describeFallback(fallback: Fallback): string {
+	switch (fallback.status) {
+		case 'reviewed':
+			return `fallback reviewer opencode:${fallback.model}, checked by Claude`
+		case 'disabled':
+			return `no fallback reviewer (${FALLBACK_MODEL_ENV}=none)`
+		case 'missing':
+			return `fallback reviewer opencode:${fallback.model} not run (${fallback.detail})`
+		case 'failed':
+			return `fallback reviewer opencode:${fallback.model} failed (${fallback.detail})`
+		case 'invalid':
+			return `fallback reviewer opencode:${fallback.model} returned no valid review (${fallback.detail})`
+	}
 }
 
 // Why Codex took no part. `missing` and `auth` come from the first failed run;
@@ -170,14 +291,27 @@ const UNAVAILABLE_LABEL: Record<CodexUnavailableReason, string> = {'usage-limit'
 export interface Coverage {
 	reviewers: readonly string[]
 	verifiers: readonly Engine[]
+	// Whose findings each checker checked, one entry per pair that ran.
+	checks: readonly {author: Engine; by: Engine}[]
 	codexSkipped: CodexUnavailability | null
+	// Set when Codex was skipped before the review, so its slot needed a stand-in.
+	fallback: Fallback | null
+	claudeModel: string
 }
 
-export function coverageSummary({reviewers, verifiers, codexSkipped}: Coverage): string {
-	const skipped = codexSkipped ? `Codex skipped (${UNAVAILABLE_LABEL[codexSkipped.reason]}: ${codexSkipped.detail}). ` : ''
+const ENGINE_NAME: Record<Engine, string> = {claude: 'Claude', codex: 'Codex', opencode: 'OpenCode'}
+
+function describeCheck({author, by}: {author: Engine; by: Engine}): string {
+	if (author === by) return `${ENGINE_NAME[author]}'s findings checked in a second ${ENGINE_NAME[by]} pass, not by Codex, so a blind spot the first pass had may remain`
+	return `${ENGINE_NAME[author]}'s findings checked by ${ENGINE_NAME[by]}`
+}
+
+export function coverageSummary({reviewers, verifiers, checks, codexSkipped, fallback, claudeModel}: Coverage): string {
+	const skipped = codexSkipped ? `Codex skipped (${UNAVAILABLE_LABEL[codexSkipped.reason]}: ${codexSkipped.detail})${fallback ? `; ${describeFallback(fallback)}` : ''}. ` : ''
 	if (reviewers.length === 0) return `${skipped}No reviewer completed, so nothing reviewed this change.`
-	const checkers = verifiers.length === 0 ? 'no findings needed checking' : codexSkipped ? 'findings checked in a second Claude pass, not by Codex, so a blind spot the first pass had may remain' : `findings cross-checked by ${verifiers.join(' and ')}`
-	return `${skipped}Reviewed by ${reviewers.join(', ')}; ${checkers}.`
+	const checkers = verifiers.length === 0 ? 'no findings needed checking' : codexSkipped ? checks.map(describeCheck).join('; ') : `findings cross-checked by ${verifiers.join(' and ')}`
+	const claudeRan = verifiers.includes('claude') || reviewers.some(r => r.startsWith('claude:'))
+	return `${skipped}Reviewed by ${reviewers.join(', ')}; ${checkers}.${claudeRan ? ` Claude ran as claude:${claudeModel}.` : ''}`
 }
 
 export type Status = Verdict['verdict']
@@ -192,7 +326,15 @@ export interface ResolvedCandidate extends Candidate {
 	// Reviewers of the other tool that flagged overlapping lines; shown, never trusted.
 	alsoFlaggedBy: string[]
 	corroborated: boolean
+	// A weaker checker refuted a serious Claude finding, so it is left to the reader.
+	escalated: boolean
 }
+
+const SERIOUS: ReadonlySet<Finding['severity']> = new Set(['P0', 'P1'])
+
+// Claude (Opus) is the strongest model in the run: a weaker checker's refutation
+// of one of its P0 or P1 findings does not drop it.
+const escalates = (c: Candidate, check: Checked | undefined): boolean => c.engine === 'claude' && check !== undefined && check.by !== 'claude' && check.verdict.verdict === 'refuted' && SERIOUS.has(c.severity)
 
 const touchesChange = (f: Finding, changed: ChangedRanges): boolean => (changed.get(f.file) ?? []).some(([start, end]) => f.lineStart <= end + LINE_SLACK && start <= f.lineEnd + LINE_SLACK)
 
@@ -202,11 +344,12 @@ export function resolveCandidates(all: readonly Candidate[], checks: ReadonlyMap
 	return all.map(c => {
 		const check = checks.get(c.id)
 		const verdict = check?.verdict
-		const status: Status = verdict?.verdict ?? 'uncertain'
+		const escalated = escalates(c, check)
+		const status: Status = escalated ? 'uncertain' : (verdict?.verdict ?? 'uncertain')
 		const introduced = verdict?.introduced ?? c.introduced
 		const action: Action | null = status === 'refuted' ? null : introduced || touchesChange(c, changed) ? 'fix' : 'backlog'
 		const alsoFlaggedBy = [...new Set(all.filter(o => o.engine !== c.engine && overlap(o, c)).map(o => `${o.engine}:${o.lane}`))]
-		return {...c, introduced, status, reason: verdict?.reason ?? 'The verifier returned no verdict.', verifiedBy: check?.by ?? null, action, alsoFlaggedBy, corroborated: alsoFlaggedBy.length > 0}
+		return {...c, introduced, status, reason: verdict?.reason ?? 'The verifier returned no verdict.', verifiedBy: check?.by ?? null, action, alsoFlaggedBy, corroborated: alsoFlaggedBy.length > 0, escalated}
 	})
 }
 
@@ -215,16 +358,19 @@ export const needsAction = (resolved: readonly ResolvedCandidate[]): boolean => 
 
 // Every report is listed in full: grouping nearby reports would hide a second,
 // different defect behind the first one's text.
-function renderEntry(r: ResolvedCandidate): string {
+// "Opus" for the CLI's aliases, the model id as given otherwise.
+const claudeModelName = (model: string): string => (/^(?:opus|sonnet|haiku)$/i.test(model) ? model[0].toUpperCase() + model.slice(1).toLowerCase() : model)
+
+function renderEntry(r: ResolvedCandidate, claudeModel: string): string {
 	const where = `${r.file}:${r.lineStart}${r.lineEnd === r.lineStart ? '' : `-${r.lineEnd}`}`
 	const also = r.alsoFlaggedBy.length === 0 ? '' : `; also flagged by ${r.alsoFlaggedBy.join(', ')}`
-	const by = r.verifiedBy === null ? 'not checked' : r.verifiedBy === r.engine ? `${r.status} by a second ${r.engine} pass` : `${r.status} by ${r.verifiedBy}`
+	const by = r.verifiedBy === null ? 'not checked' : r.escalated ? `refuted by ${r.verifiedBy}, escalated: ${r.severity} from ${claudeModelName(claudeModel)}` : r.verifiedBy === r.engine ? `${r.status} by a second ${r.engine} pass` : `${r.status} by ${r.verifiedBy}`
 	return [`- **[${r.severity}] ${r.title}** — \`${where}\` (${r.engine}:${r.lane}; ${by}${also})`, `  ${r.body.replaceAll('\n', '\n  ')}`, `  _Check:_ ${r.reason}`].join('\n')
 }
 
-function section(title: string, entries: readonly ResolvedCandidate[]): string {
+function section(title: string, entries: readonly ResolvedCandidate[], claudeModel: string): string {
 	const sorted = [...entries].sort((a, b) => a.file.localeCompare(b.file) || a.lineStart - b.lineStart || rank(a) - rank(b))
-	return [`## ${title} (${entries.length})`, '', ...(sorted.length === 0 ? ['None.'] : sorted.map(renderEntry)), ''].join('\n')
+	return [`## ${title} (${entries.length})`, '', ...(sorted.length === 0 ? ['None.'] : sorted.map(r => renderEntry(r, claudeModel))), ''].join('\n')
 }
 
 export interface ReportInput {
@@ -246,19 +392,23 @@ export function renderReport({base, head, resolved, failures, coverage}: ReportI
 		'',
 		section(
 			'Fix in this change',
-			confirmed.filter(r => r.action === 'fix')
+			confirmed.filter(r => r.action === 'fix'),
+			coverage.claudeModel
 		),
 		section(
 			'Backlog',
-			confirmed.filter(r => r.action === 'backlog')
+			confirmed.filter(r => r.action === 'backlog'),
+			coverage.claudeModel
 		),
 		section(
 			'Uncertain: read the code and decide',
-			resolved.filter(r => r.status === 'uncertain')
+			resolved.filter(r => r.status === 'uncertain'),
+			coverage.claudeModel
 		),
 		section(
 			'Refuted',
-			resolved.filter(r => r.status === 'refuted')
+			resolved.filter(r => r.status === 'refuted'),
+			coverage.claudeModel
 		)
 	].join('\n')
 }

@@ -21,8 +21,9 @@ export interface Lane {
 const DOCUMENTED_RULES = `the repository's documented rules (AGENTS.md or CLAUDE.md at the root and in changed folders, and the docs they point to)`
 
 // Claude reviews in narrow lanes, Codex reviews the whole change at once, so the
-// two tools find bugs from different angles. When Codex is unavailable, a light
-// run puts the whole-change lane on Claude instead. Repository-specific scope
+// two tools find bugs from different angles. When Codex is unavailable, the
+// OpenCode fallback runs the whole-change lane in its place, or Claude does in a
+// light run without one. Repository-specific scope
 // rules (what not to raise) come from the review learnings, which every prompt
 // includes.
 export const CLAUDE_LANES: readonly Lane[] = [
@@ -137,3 +138,17 @@ Also set "introduced": true only if this change created or exposed the defect, f
 
 Return JSON matching the provided schema with exactly one verdict per id.`
 }
+
+// OpenCode has no structured-output flag, so the schema rides in the prompt and
+// run.ts pulls the last JSON object out of the reply.
+export function opencodePrompt(prompt: string, schema: object): string {
+	return `${prompt}
+
+The JSON Schema your reply must match:
+${JSON.stringify(schema)}
+
+Reply with only one JSON object matching this schema: no prose before or after it, no code fence.`
+}
+
+// The one follow-up, in the same session, when the reply held no valid JSON.
+export const OPENCODE_RETRY = 'Your reply was not valid JSON for the schema. Reply with only the JSON object, nothing else.'

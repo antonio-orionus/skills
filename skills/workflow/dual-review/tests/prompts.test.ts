@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'bun:test'
 
-import {CLAUDE_LANES, WHOLE_CHANGE_LANE, reviewPrompt, verifyPrompt, type ReviewScope} from '../scripts/prompts'
+import {CLAUDE_LANES, OPENCODE_RETRY, WHOLE_CHANGE_LANE, opencodePrompt, reviewPrompt, verifyPrompt, type ReviewScope} from '../scripts/prompts'
 
 const LEARNINGS = '- Do not raise security hardening: this tool runs locally (2026-10-20).'
 const SCOPE: ReviewScope = {project: {name: 'widget', summary: 'Widget renders charts from CSV files.', source: 'AGENTS.md'}, mergeBase: 'abc', head: 'def', commits: '- def a change', files: ' a.ts | 1 +', learnings: LEARNINGS}
@@ -40,5 +40,15 @@ describe('dual review prompts', () => {
 	it('keep the markers the fake reviewer in run.test.ts splits on', () => {
 		expect(reviewPrompt(SCOPE, CLAUDE_LANES[0])).toContain('Your focus:\nRegressions')
 		expect(verifyPrompt(SCOPE, '[]', false)).toContain('Findings to check (JSON, one entry per id):\n[]\n\nFor each id')
+	})
+
+	// OpenCode has no structured-output flag, so the schema travels in the prompt.
+	it('give OpenCode the schema and ask for one bare JSON object', () => {
+		const schema = {type: 'object', properties: {findings: {type: 'array'}}}
+		const prompt = opencodePrompt(reviewPrompt(SCOPE, WHOLE_CHANGE_LANE), schema)
+		expect(prompt).toStartWith(reviewPrompt(SCOPE, WHOLE_CHANGE_LANE))
+		expect(prompt).toContain(JSON.stringify(schema))
+		expect(prompt).toContain('Reply with only one JSON object matching this schema')
+		expect(OPENCODE_RETRY).toContain('not valid JSON for the schema')
 	})
 })

@@ -2,10 +2,14 @@ import {describe, expect, it} from 'bun:test'
 
 import {
 	claudeArgs,
+	claudeModelFrom,
 	classifyCodexFailure,
 	coverageSummary,
+	fallbackModelFrom,
+	lastJsonObject,
 	needsAction,
 	parseChangedRanges,
+	parseOpencodeOutput,
 	parseReviewOutput,
 	parseVerdicts,
 	renderReport,
@@ -17,6 +21,7 @@ import {
 	type Candidate,
 	type Checked,
 	type Coverage,
+	type Engine,
 	type Finding
 } from '../scripts/core'
 
@@ -26,7 +31,7 @@ function finding(overrides: Partial<Finding> = {}): Finding {
 	return {title: 'Drop the stale job', body: 'When the queue restarts, the job is lost.', file: 'src/main/queue.ts', lineStart: 10, lineEnd: 12, severity: 'P2', confidence: 0.8, introduced: true, ...overrides}
 }
 
-function candidates(engine: 'claude' | 'codex', lane: string, ...findings: Finding[]): Candidate[] {
+function candidates(engine: Engine, lane: string, ...findings: Finding[]): Candidate[] {
 	return toCandidates(engine, lane, findings)
 }
 
@@ -150,6 +155,13 @@ describe('verifierFor', () => {
 		const all = [...candidates('claude', 'regressions', finding()), ...candidates('claude', 'tests', finding())]
 		expect(all.map(c => verifierFor(c, false))).toEqual(['claude', 'claude'])
 	})
+
+	// OpenCode is the weakest model in the run: it finds, it never judges.
+	it('has Claude check every OpenCode report and never hands one to OpenCode or Codex', () => {
+		const all = candidates('opencode', 'review', finding(), finding({lineStart: 300}))
+		expect(all.map(c => verifierFor(c, true))).toEqual(['claude', 'claude'])
+		expect(all.map(c => verifierFor(c, false))).toEqual(['claude', 'claude'])
+	})
 })
 
 // What run.ts hands over: each verdict stamped with the tool that gave it.
@@ -210,6 +222,36 @@ describe('resolveCandidates', () => {
 			).map(r => r.action)
 		).toEqual(['fix', 'backlog'])
 	})
+
+	// Opus is the strongest model in the run, so a weaker checker refuting one of
+	// its serious findings sends it to the reader instead of dropping it.
+	it('escalates a P0 or P1 Claude report that Codex refuted to uncertain, keeping the reason', () => {
+		const all = candidates('claude', 'regressions', finding({severity: 'P0'}), finding({severity: 'P1', lineStart: 40}), finding({severity: 'P2', lineStart: 80}))
+		const out = resolve(
+			all,
+			all.map(c => verdict(c.id, 'refuted'))
+		)
+		expect(out.map(r => [r.severity, r.status, r.escalated, r.verifiedBy])).toEqual([
+			['P0', 'uncertain', true, 'codex'],
+			['P1', 'uncertain', true, 'codex'],
+			['P2', 'refuted', false, 'codex']
+		])
+		expect(out[1]?.reason).toBe('refuted because of the code')
+		expect(needsAction(out)).toBe(true)
+	})
+
+	it('lets Claude’s refutation of a Codex or OpenCode report stand, whatever its severity', () => {
+		const all = [...candidates('codex', 'review', finding({severity: 'P0'})), ...candidates('opencode', 'review', finding({severity: 'P1'}))]
+		expect(resolve(all, all.map(c => verdict(c.id, 'refuted'))).map(r => [r.status, r.escalated])).toEqual([
+			['refuted', false],
+			['refuted', false]
+		])
+	})
+
+	it('lets a second Claude pass refute a P0 Claude report', () => {
+		const all = candidates('claude', 'regressions', finding({severity: 'P0'}))
+		expect(resolveCandidates(all, checkedBy(all, [verdict(all[0].id, 'refuted')], false), changed)[0]).toMatchObject({status: 'refuted', escalated: false, verifiedBy: 'claude'})
+	})
 })
 
 describe('needsAction', () => {
@@ -230,8 +272,31 @@ describe('needsAction', () => {
 	})
 })
 
-const BOTH: Coverage = {reviewers: ['codex:review', 'claude:regressions'], verifiers: ['claude', 'codex'], codexSkipped: null}
-const NO_CODEX: Coverage = {reviewers: ['claude:review'], verifiers: ['claude'], codexSkipped: {reason: 'usage-limit', detail: 'You’ve hit your usage limit. Try again at Oct 27th, 2026 9:20 AM.'}}
+const USAGE_LIMIT = {reason: 'usage-limit', detail: 'You’ve hit your usage limit. Try again at Oct 27th, 2026 9:20 AM.'} as const
+const MIMO = 'openrouter/xiaomi/mimo-v2.6-pro'
+const BOTH: Coverage = {
+	reviewers: ['codex:review', 'claude:regressions'],
+	verifiers: ['claude', 'codex'],
+	checks: [
+		{author: 'codex', by: 'claude'},
+		{author: 'claude', by: 'codex'}
+	],
+	codexSkipped: null,
+	fallback: null,
+	claudeModel: 'opus'
+}
+const NO_CODEX: Coverage = {reviewers: ['claude:review'], verifiers: ['claude'], checks: [{author: 'claude', by: 'claude'}], codexSkipped: USAGE_LIMIT, fallback: {status: 'disabled'}, claudeModel: 'opus'}
+const WITH_FALLBACK: Coverage = {
+	reviewers: ['opencode:review', 'claude:regressions'],
+	verifiers: ['claude'],
+	checks: [
+		{author: 'opencode', by: 'claude'},
+		{author: 'claude', by: 'claude'}
+	],
+	codexSkipped: USAGE_LIMIT,
+	fallback: {status: 'reviewed', model: MIMO},
+	claudeModel: 'opus'
+}
 
 // Copied from `codex exec` on 2026-10-21, when the subscription ran out.
 const USAGE_LIMIT_STDERR = `Reading additional input from stdin...
@@ -278,12 +343,29 @@ describe('coverage in the report', () => {
 		expect(report(NO_CODEX)).toContain(line)
 	})
 
-	it('lists both tools when Codex ran', () => {
-		expect(coverageSummary(BOTH)).toBe('Reviewed by codex:review, claude:regressions; findings cross-checked by claude and codex.')
+	it('lists both tools and the Claude model when Codex ran', () => {
+		expect(coverageSummary(BOTH)).toBe('Reviewed by codex:review, claude:regressions; findings cross-checked by claude and codex. Claude ran as claude:opus.')
+	})
+
+	it('names the fallback reviewer and says Claude checked its findings', () => {
+		const line = coverageSummary(WITH_FALLBACK)
+		expect(line).toStartWith(`Codex skipped (usage limit: ${USAGE_LIMIT.detail}); fallback reviewer opencode:${MIMO}, checked by Claude.`)
+		expect(line).toContain('Reviewed by opencode:review, claude:regressions')
+		expect(line).toContain("OpenCode's findings checked by Claude")
+		expect(line).toContain("Claude's findings checked in a second Claude pass")
+		expect(line).toContain('claude:opus')
+	})
+
+	it('says why no fallback reviewer ran', () => {
+		const line = (fallback: Coverage['fallback']) => coverageSummary({...NO_CODEX, fallback})
+		expect(line({status: 'disabled'})).toContain('no fallback reviewer (DUAL_REVIEW_FALLBACK_MODEL=none)')
+		expect(line({status: 'missing', model: MIMO, detail: 'the opencode binary was not found on PATH'})).toContain(`fallback reviewer opencode:${MIMO} not run (the opencode binary was not found on PATH)`)
+		expect(line({status: 'failed', model: MIMO, detail: 'Model unavailable'})).toContain(`fallback reviewer opencode:${MIMO} failed (Model unavailable)`)
+		expect(line({status: 'invalid', model: MIMO, detail: 'no JSON object in the reply'})).toContain(`fallback reviewer opencode:${MIMO} returned no valid review (no JSON object in the reply)`)
 	})
 
 	it('says plainly when nothing reviewed the change', () => {
-		const none: Coverage = {reviewers: [], verifiers: [], codexSkipped: NO_CODEX.codexSkipped}
+		const none: Coverage = {...NO_CODEX, reviewers: [], verifiers: [], checks: []}
 		expect(coverageSummary(none)).toContain('No reviewer completed')
 		expect(report(none, ['claude review-claude-review exited with 1'])).not.toContain('Every reviewer finished.')
 	})
@@ -304,10 +386,19 @@ describe('renderReport', () => {
 		expect(report).toContain('refuted because of the code')
 		expect(report).toContain('claude review-claude-tests exited with 1')
 	})
+
+	it('files an escalated refutation under uncertain and says who refuted it and why it was kept', () => {
+		const all = candidates('claude', 'regressions', finding({severity: 'P1'}))
+		const report = renderReport({base: 'abc1234', head: 'def5678', resolved: resolveCandidates(all, checkedBy(all, [verdict(all[0].id, 'refuted')]), new Map()), failures: [], coverage: BOTH})
+		expect(report).toContain('## Uncertain: read the code and decide (1)')
+		expect(report).toContain('## Refuted (0)')
+		expect(report).toContain('refuted by codex, escalated: P1 from Opus')
+		expect(report).toContain('_Check:_ refuted because of the code')
+	})
 })
 
 describe('claudeArgs', () => {
-	const args = claudeArgs('Review it', reviewJsonSchema)
+	const args = claudeArgs('Review it', reviewJsonSchema, 'opus')
 	const after = (flag: string) => args[args.indexOf(flag) + 1]
 
 	// A user-level hook that rewrites `git diff` (to `wrapper git diff`) no longer
@@ -323,4 +414,69 @@ describe('claudeArgs', () => {
 		expect(after('--permission-mode')).toBe('default')
 		expect(args.slice(-2)).toEqual(['--', 'Review it'])
 	})
+
+	it('pins the model', () => {
+		expect(after('--model')).toBe('opus')
+		const other = claudeArgs('x', reviewJsonSchema, 'sonnet')
+		expect(other[other.indexOf('--model') + 1]).toBe('sonnet')
+	})
 })
+
+describe('model settings', () => {
+	it('runs Claude on Opus unless DUAL_REVIEW_CLAUDE_MODEL names another model', () => {
+		expect(claudeModelFrom({})).toBe('opus')
+		expect(claudeModelFrom({DUAL_REVIEW_CLAUDE_MODEL: ' '})).toBe('opus')
+		expect(claudeModelFrom({DUAL_REVIEW_CLAUDE_MODEL: 'claude-opus-5-5'})).toBe('claude-opus-5-5')
+	})
+
+	it('uses MiMo for the fallback reviewer unless DUAL_REVIEW_FALLBACK_MODEL names another or none', () => {
+		expect(fallbackModelFrom({})).toBe('openrouter/xiaomi/mimo-v2.6-pro')
+		expect(fallbackModelFrom({DUAL_REVIEW_FALLBACK_MODEL: ''})).toBe('openrouter/xiaomi/mimo-v2.6-pro')
+		expect(fallbackModelFrom({DUAL_REVIEW_FALLBACK_MODEL: 'opencode/glm-5.3'})).toBe('opencode/glm-5.3')
+		expect(fallbackModelFrom({DUAL_REVIEW_FALLBACK_MODEL: 'none'})).toBeNull()
+		expect(fallbackModelFrom({DUAL_REVIEW_FALLBACK_MODEL: ' NONE '})).toBeNull()
+	})
+})
+
+describe('lastJsonObject', () => {
+	it('finds the reply among ANSI codes, tool-call progress lines and a json fence', () => {
+		const out = ['\u001b[0m\u001b[1m> plan · mimo-v2.6-pro\u001b[0m', '\u001b[2m→ Read src/a.ts {"path": "src/a.ts"}\u001b[0m', '$ git diff abc...def', 'Here is my review:', '```json', '{"findings": [{"title": "a {brace} and a \\"quote\\"", "n": 1}]}', '```', ''].join('\n')
+		expect(lastJsonObject(out)).toEqual({findings: [{title: 'a {brace} and a "quote"', n: 1}]})
+	})
+
+	it('takes the last of several objects and skips a stray brace in prose', () => {
+		expect(lastJsonObject('I will use {x} here. {"a": 1} then {"b": {"c": 2}} done')).toEqual({b: {c: 2}})
+		expect(lastJsonObject('{"b": 1} and an unclosed { here')).toEqual({b: 1})
+	})
+
+	it('returns undefined when there is no JSON object', () => {
+		expect(lastJsonObject('I could not review the change.')).toBeUndefined()
+		expect(lastJsonObject('[1, 2]')).toBeUndefined()
+	})
+})
+
+describe('parseOpencodeOutput', () => {
+	// Shapes from `opencode run --format json` 2.1.1 (2026-10-22).
+	const event = (type: string, extra: object) => JSON.stringify({type, timestamp: 1, sessionID: 'ses_1', ...extra})
+	const text = (id: string, value: string) => event('text', {part: {id, type: 'text', text: value}})
+
+	it('joins the text parts of the event stream and keeps the session id', () => {
+		const stdout = [event('step_start', {part: {type: 'step-start'}}), event('tool_use', {part: {type: 'tool', tool: 'read', state: {status: 'completed', output: '{"not": "the reply"}'}}}), text('p1', 'Looking.'), text('p2', '{"findings": []}'), 'stray progress line', ''].join('\n')
+		const out = parseOpencodeOutput(stdout)
+		expect(out).toEqual({text: 'Looking.\n{"findings": []}', sessionId: 'ses_1', error: null})
+		expect(lastJsonObject(out.text)).toEqual({findings: []})
+	})
+
+	it('keeps the last version of a text part sent more than once', () => {
+		expect(parseOpencodeOutput([text('p1', '{"a"'), text('p1', '{"a": 1}')].join('\n')).text).toBe('{"a": 1}')
+	})
+
+	it('reports an error event', () => {
+		expect(parseOpencodeOutput(event('error', {error: {type: 'provider.no-route', message: 'Model unavailable: x/y'}})).error).toBe('Model unavailable: x/y')
+	})
+
+	it('passes plain output through when there is no event stream', () => {
+		expect(parseOpencodeOutput('\u001b[1mreview\u001b[0m\n{"findings": []}\n')).toEqual({text: '\u001b[1mreview\u001b[0m\n{"findings": []}\n', sessionId: null, error: null})
+	})
+})
+

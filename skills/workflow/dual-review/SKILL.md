@@ -5,11 +5,24 @@ description: Local cross-checked code review of the current branch by the Claude
 
 # Dual review
 
-Codex reviews the whole change; Claude reviews it in four lanes (regressions,
-silent failures, types and documented rules, tests). Each tool then checks
-every finding the other reported, and the result is sorted into what this
-change must fix and what predates it. Needs `git`, `bun`, and the `claude` and
-`codex` CLIs logged in; no API keys.
+Codex reviews the whole change; Claude, pinned to Opus, reviews it in four
+lanes (regressions, silent failures, types and documented rules, tests). Each
+tool then checks every finding the other reported, and the result is sorted
+into what this change must fix and what predates it. Needs `git`, `bun`, and
+the `claude` and `codex` CLIs logged in; no API keys. The `opencode` CLI is
+optional: it stands in for Codex when Codex is unavailable.
+
+Roles follow model strength: Opus first, Codex second, the OpenCode fallback
+last.
+
+| Role | Who |
+| --- | --- |
+| Find | Opus lanes + Codex, or the OpenCode fallback when Codex is out |
+| Check Codex/OpenCode findings | Opus |
+| Check Opus findings | Codex (or a second Opus pass when Codex is out) |
+| P0/P1 Opus finding refuted by a weaker checker | Uncertain, never dropped |
+
+`DUAL_REVIEW_CLAUDE_MODEL` changes the Claude model (default `opus`).
 
 ```bash
 DR="bun $HOME/.agents/skills/dual-review/scripts"
@@ -45,7 +58,8 @@ coverage**, says who reviewed and who checked; quote it in the PR body.
 - **Fix in this change**: confirmed bugs the change introduced or that sit in
   its changed lines. Fix each one test-first. You stay the judge: a confirmed
   finding can still be wrong, so say why when you reject one.
-- **Uncertain**: the checker could not settle it from the code. Read the code
+- **Uncertain**: the checker could not settle it from the code, or Codex
+  refuted a P0/P1 Opus finding ("refuted by codex, escalated"). Read the code
   and decide.
 - **Backlog**: confirmed bugs that predate the change, outside its lines. Fix
   one here only when it sits in code you touched and the fix is small; record
@@ -59,11 +73,27 @@ commits. Two rounds at most; take anything a third would need to the user.
 ## Codex unavailable
 
 On a usage limit, a missing login or a missing binary, the run skips Codex and
-the coverage line says so and why. `--light` then runs one whole-change Claude
-reviewer; a full run keeps its four lanes. Either way a second Claude pass
-checks the findings instead of Codex: a weaker cross-check (same model, shared
-blind spots), so read the code behind every "uncertain" yourself. Rely on this
-built-in fallback; any other Codex failure is a failed reviewer (exit 2).
+the coverage line says so and why. An OpenCode reviewer takes Codex's
+whole-change slot, in `--light` and full runs alike (a full run keeps its four
+Claude lanes). It runs read-only from the repository root
+(`opencode run --standalone --agent plan -m <model>`), on
+`DUAL_REVIEW_FALLBACK_MODEL` (default `openrouter/xiaomi/mimo-v2.6-pro`).
+Claude checks every OpenCode finding; OpenCode never checks anything. Claude's
+own findings get a second Claude pass instead of Codex: a weaker cross-check
+(same model, shared blind spots), so read the code behind every "uncertain"
+yourself. The coverage line names what ran, e.g. "Codex skipped (usage limit:
+…); fallback reviewer opencode:openrouter/xiaomi/mimo-v2.6-pro, checked by
+Claude".
+
+- `DUAL_REVIEW_FALLBACK_MODEL=none`, no `opencode` on PATH, or an OpenCode run
+  that fails (non-zero exit, an error event such as an unknown model) switches
+  the fallback off without failing the run; the coverage line says why.
+  `--light` then has Claude review the whole change, as before.
+- A reply with no valid review JSON gets one follow-up in the same session;
+  a second bad reply makes OpenCode a failed reviewer (exit 2).
+
+Rely on this built-in fallback; any other Codex failure is a failed reviewer
+(exit 2).
 
 ## Before pushing: `check-head.ts`
 
@@ -92,10 +122,11 @@ security hardening: this is a local tool (2026-10-20)".
 
 ## Maintenance
 
-`scripts/core.ts` (parsing, cross-check routing, report) and
+`scripts/core.ts` (parsing, cross-check routing, escalation, report) and
 `scripts/prompts.ts` hold the logic; `scripts/validate.ts` replaces a schema
 library so the skill has no dependencies. `tests/run.test.ts` drives `run.ts`
-through fake `claude` and `codex` binaries, so the suite spends no quota.
+through fake `claude`, `codex` and `opencode` binaries, so the suite spends no
+quota.
 
 ```bash
 cd ~/.agents/skills/dual-review && bun test

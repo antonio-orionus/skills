@@ -14,6 +14,10 @@ npx skills add antonio-orionus/skills
 |-------|-------------|
 | [`project-readme`](skills/documentation/project-readme/SKILL.md) | Create, update, rewrite, or validate truthful README files for any project archetype |
 | [`github-release-integrity`](skills/release/github-release-integrity/SKILL.md) | Decide, implement, or debug GitHub Release asset integrity, immutable releases, attestations, checksums, and stable release asset URLs |
+| [`dual-review`](skills/workflow/dual-review/SKILL.md) | Local pre-PR review: Claude and Codex review a branch, then cross-check each other's findings; `check-head` refuses a push that differs from what was reviewed |
+| [`pr-review-watch`](skills/workflow/pr-review-watch/SKILL.md) | Trigger, wait for and read a CodeRabbit review on a GitHub PR without polling loops |
+| [`orchestrate`](skills/workflow/orchestrate/SKILL.md) | Turn a backlog into merged PRs by verifying candidates and dispatching other agent sessions |
+| [`find-test-gaps`](skills/testing/find-test-gaps/SKILL.md) | Find missing or weak tests across a whole application, with extra checks for Electron apps |
 | [`triage`](skills/adapted/triage/SKILL.md) | Adapted from [mattpocock/skills](https://github.com/mattpocock/skills/tree/main/skills/engineering/triage): move issues through triage roles, without the required AI disclaimer on every comment |
 
 ## Try `project-readme`

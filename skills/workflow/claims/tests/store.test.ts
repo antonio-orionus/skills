@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'bun:test'
-import {claim, claimableIssues, emptyStore, holder, issuesNamedByPrs, latestDecision, locations, parseTarget, pathsHeldByOthers, release} from '../scripts/store'
+import {claim, claimableIssues, emptyStore, holder, issuesNamedByPrs, latestDecision, locations, parseTarget, pathsHeldByOthers, prune, release} from '../scripts/store'
 
 const NOW = new Date('2026-10-22T12:00:00Z')
 const TTL = 24 * 3600 * 1000
@@ -37,6 +37,15 @@ describe('claim', () => {
 		const taken = claim(old, ['issue:581'], 'local_b', NOW, {ttlMs: TTL})
 		expect(taken.refused).toEqual([])
 		expect(holder(taken.store, 'issue:581', NOW, TTL)?.owner).toBe('local_b')
+	})
+})
+
+describe('prune', () => {
+	it('drops lapsed claims, closed targets and claims tied to a closed target', () => {
+		let store = claim(emptyStore(), ['issue:1', 'path:src/**'], 'local_a', NOW, {tiedTo: 'issue:1'}).store
+		store = claim(store, ['issue:2'], 'local_b', hoursAgo(30)).store
+		store = claim(store, ['path:docs/**'], 'local_c', NOW).store
+		expect(prune(store, NOW, TTL, new Set(['issue:1'])).claims.map(c => c.target)).toEqual(['path:docs/**'])
 	})
 })
 

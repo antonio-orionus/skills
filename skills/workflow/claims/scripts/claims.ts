@@ -2,7 +2,9 @@
 // Who holds which issue, PR or files, shared by every session and worktree of
 // one clone. The store is agent-claims.json in the clone's common git dir.
 //
-//   bun claims.ts claim <target>... [--note <text>]   claim or renew; exit 1 when another session holds one
+//   bun claims.ts claim <target>... [--note <text>] [--for <#N|pr:N>]
+//                                                       claim or renew; exit 1 when another session holds one;
+//                                                       --for drops the claims when that issue or PR closes
 //   bun claims.ts release [<target>...] [--force]       drop your claims (all of them without targets)
 //   bun claims.ts who <target>                          print the holder; exit 1 when it is another session
 //   bun claims.ts list [--json]                         live claims
@@ -86,11 +88,12 @@ function withStore<T>(fn: (store: Store) => {store?: Store; result: T}): T {
 // read stays: being offline must not release claims.
 function closedTargets(store: Store): Set<string> {
 	const closed = new Set<string>()
-	for (const c of store.claims) {
-		const m = /^(?:issue|pr):(\d+)$/.exec(c.target)
+	const targets = new Set(store.claims.flatMap(c => (c.tiedTo === undefined ? [c.target] : [c.target, c.tiedTo])))
+	for (const target of targets) {
+		const m = /^(?:issue|pr):(\d+)$/.exec(target)
 		if (!m) continue
 		try {
-			if (run('gh', ['api', `repos/{owner}/{repo}/issues/${m[1]}`, '--jq', '.state']).trim() === 'closed') closed.add(c.target)
+			if (run('gh', ['api', `repos/{owner}/{repo}/issues/${m[1]}`, '--jq', '.state']).trim() === 'closed') closed.add(target)
 		} catch {
 			// Unknown: keep it.
 		}
@@ -100,7 +103,7 @@ function closedTargets(store: Store): Set<string> {
 
 const pruned = (store: Store, now: Date): Store => prune(store, now, ttlMs(), closedTargets(store))
 
-const describeClaim = (c: {target: string; owner: string; since: string; note?: string}): string => `${c.target}  ${c.owner}  since ${c.since}${c.note ? `  (${c.note})` : ''}`
+const describeClaim = (c: {target: string; owner: string; since: string; note?: string; tiedTo?: string}): string => `${c.target}  ${c.owner}  since ${c.since}${c.tiedTo ? `  for ${c.tiedTo}` : ''}${c.note ? `  (${c.note})` : ''}`
 
 function flag(args: string[], name: string): string | undefined {
 	const i = args.indexOf(name)
@@ -135,11 +138,14 @@ function main(argv: string[]): number {
 	switch (command) {
 		case 'claim': {
 			const note = flag(args, '--note')
+			const forRaw = flag(args, '--for')
+			const tiedTo = forRaw === undefined ? undefined : parseTarget(forRaw)
+			if (tiedTo?.startsWith('path:')) throw new Usage('--for takes an issue or PR, not a path')
 			const me = owner()
 			const targets = args.map(parseTarget)
 			if (targets.length === 0) throw new Usage('claim what? give #N, pr:N or path:<glob>')
 			const refused = withStore(store => {
-				const out = claim(pruned(store, now), targets, me, now, {note, ttlMs: ttlMs()})
+				const out = claim(pruned(store, now), targets, me, now, {note, tiedTo, ttlMs: ttlMs()})
 				return {store: out.store, result: out.refused}
 			})
 			for (const c of refused) console.error(`${c.target} is held by ${c.owner} since ${c.since}${c.note ? ` (${c.note})` : ''}`)
@@ -193,7 +199,10 @@ function main(argv: string[]): number {
 		}
 		case 'check-paths': {
 			const files = changedFiles(flag(args, '--base'))
-			const store = withStore(s => ({result: s}))
+			const store = withStore(s => {
+				const next = pruned(s, now)
+				return {store: next, result: next}
+			})
 			const held = pathsHeldByOthers(store, files, ownerOrNull() ?? '', now, ttlMs())
 			if (held.length === 0) return 0
 			console.error(`claims: this branch changes ${held.length} file(s) another session holds:`)

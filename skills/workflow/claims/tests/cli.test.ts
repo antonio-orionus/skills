@@ -83,6 +83,13 @@ describe('claims CLI', () => {
 		expect(run('local_b', 'who', '#1').out).toContain('issue:1 is free')
 	})
 
+	it('drops path claims tied to an issue once that issue closes', async () => {
+		expect(run('local_a', 'claim', 'path:src/main/**', '--for', '#1').code).toBe(0)
+		expect(run(null, 'list').out).toContain('path:src/main/**  local_a')
+		await setGh({issues: [{number: 1, title: 'free', body: '', state: 'closed'}], prs: []})
+		expect(run(null, 'list').out).toBe('')
+	})
+
 	it('gives a target to exactly one of several sessions claiming at once', async () => {
 		const env = (owner: string): Record<string, string | undefined> => ({...process.env, ...GIT_ENV, PATH: `${FAKE_BIN}:${process.env.PATH}`, FAKE_GH_STATE: ghState, CLAUDE_CODE_HOST_SESSION_ID: undefined, CLAIMS_OWNER: owner})
 		const racers = ['local_a', 'local_b', 'local_c', 'local_d'].map(owner => Bun.spawn(['bun', CLI, 'claim', '#1'], {cwd: repo, env: env(owner), stdout: 'ignore', stderr: 'ignore'}).exited)
@@ -113,6 +120,9 @@ describe('claims CLI', () => {
 		expect(blocked.err).toContain('a.ts')
 		expect(blocked.err).toContain('local_b')
 		expect(run('local_b', 'check-paths').code).toBe(0)
+		expect(run('local_b', 'claim', 'path:a.ts', '--for', '#1').code).toBe(0)
+		await setGh({issues: [{number: 1, title: 'free', body: '', state: 'closed'}], prs: []})
+		expect(run('local_a', 'check-paths').code).toBe(0)
 	})
 
 	it('prints the latest recorded decision on an issue', () => {

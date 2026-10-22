@@ -3,8 +3,8 @@
 //
 // A claim names its target (`issue:N`, `pr:N` or `path:<glob>`) and its owner,
 // a session id. It lapses when its owner has not renewed it within the TTL,
-// and claims.ts also drops claims on closed issues and PRs, so nobody cleans
-// up by hand. Only an exact target is refused at claim time; files under
+// and claims.ts also drops claims on closed issues and PRs, and path claims
+// tied to one (`tiedTo`), so nobody cleans up by hand. Only an exact target is refused at claim time; files under
 // another session's path glob are refused at push time (check-paths).
 
 export interface Claim {
@@ -13,6 +13,8 @@ export interface Claim {
 	since: string
 	renewed: string
 	note?: string
+	// An issue or PR target; the claim drops when that closes.
+	tiedTo?: string
 }
 
 export interface Store {
@@ -51,7 +53,7 @@ export function parseStore(value: unknown): Store {
 	const claims = (value as {claims: unknown[]}).claims.filter((c): c is Claim => {
 		if (typeof c !== 'object' || c === null) return false
 		const r = c as Record<string, unknown>
-		return typeof r.target === 'string' && typeof r.owner === 'string' && typeof r.since === 'string' && typeof r.renewed === 'string' && (r.note === undefined || typeof r.note === 'string')
+		return typeof r.target === 'string' && typeof r.owner === 'string' && typeof r.since === 'string' && typeof r.renewed === 'string' && (r.note === undefined || typeof r.note === 'string') && (r.tiedTo === undefined || typeof r.tiedTo === 'string')
 	})
 	return {version: 1, claims}
 }
@@ -64,7 +66,7 @@ export function holder(store: Store, target: string, now: Date, ttlMs: number): 
 
 // Claims each target for `owner`, renewing the ones it already holds. A target
 // another session holds live is refused and left as it was.
-export function claim(store: Store, targets: string[], owner: string, now: Date, opts: {note?: string; ttlMs?: number} = {}): {store: Store; refused: Claim[]} {
+export function claim(store: Store, targets: string[], owner: string, now: Date, opts: {note?: string; tiedTo?: string; ttlMs?: number} = {}): {store: Store; refused: Claim[]} {
 	const ttlMs = opts.ttlMs ?? DEFAULT_TTL_MS
 	const stamp = now.toISOString()
 	const claims = [...store.claims]
@@ -77,7 +79,9 @@ export function claim(store: Store, targets: string[], owner: string, now: Date,
 			continue
 		}
 		const mine = current?.owner === owner && isLive(current, now, ttlMs)
-		const next: Claim = {target, owner, since: mine && current ? current.since : stamp, renewed: stamp, ...(opts.note !== undefined ? {note: opts.note} : mine && current?.note !== undefined ? {note: current.note} : {})}
+		const note = opts.note ?? (mine ? current?.note : undefined)
+		const tiedTo = opts.tiedTo ?? (mine ? current?.tiedTo : undefined)
+		const next: Claim = {target, owner, since: mine && current ? current.since : stamp, renewed: stamp, ...(note !== undefined ? {note} : {}), ...(tiedTo !== undefined ? {tiedTo} : {})}
 		if (i === -1) claims.push(next)
 		else claims[i] = next
 	}
@@ -97,7 +101,7 @@ export function release(store: Store, targets: string[] | null, owner: string, f
 }
 
 export function prune(store: Store, now: Date, ttlMs: number, closed: ReadonlySet<string>): Store {
-	return {version: 1, claims: store.claims.filter(c => isLive(c, now, ttlMs) && !closed.has(c.target))}
+	return {version: 1, claims: store.claims.filter(c => isLive(c, now, ttlMs) && !closed.has(c.target) && !(c.tiedTo !== undefined && closed.has(c.tiedTo)))}
 }
 
 const globOf = (c: Claim): Bun.Glob | null => (c.target.startsWith('path:') ? new Bun.Glob(c.target.slice('path:'.length)) : null)

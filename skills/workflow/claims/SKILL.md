@@ -9,7 +9,7 @@ Several sessions work one clone at once, all posting as the same GitHub account,
 
 ```bash
 C="bun $HOME/.agents/skills/claims/scripts/claims.ts"
-$C claim '#581' 'path:src/main/services/**' --note 'quit keeps queue'
+$C claim '#581' 'path:src/main/services/**' --for '#581' --note 'quit keeps queue'
 $C who pr:621             # exit 1 when another session holds it
 $C claimable              # open ready-for-agent issues free to start
 $C decision 581           # the latest recorded decision on #581
@@ -20,7 +20,7 @@ Targets are `#N` (an issue), `pr:N` and `path:<glob>`. The owner is your desktop
 
 ## When to claim
 
-- **Starting an issue or PR:** claim it, and `path:` globs for the files your plan changes, before the first edit. Exit 1 means another session holds one: report its holder to the user rather than working around it.
+- **Starting an issue or PR:** claim it, and `path:` globs for the files your plan changes, before the first edit, with `--for '#N'` so the path claims drop when the issue closes. Exit 1 means another session holds one: report its holder to the user rather than working around it.
 - **Filing a follow-up you will do yourself:** claim it in the same step, so a drain doesn't pick it up.
 - **Dispatching (orchestrator, drain):** take work only from `claimable`, and claim each issue for the worker before it starts. A drain is done when `claimable` prints nothing.
 - **Reviewing or commenting on a PR, or answering for an issue:** `who` first; a target another session holds is that session's to act on.

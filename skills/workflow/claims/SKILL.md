@@ -8,12 +8,12 @@ description: "Which agent session owns an issue, PR or set of files in this clon
 Several sessions work one clone at once, all posting as the same GitHub account, so an assignee can't say which session owns what. A **claim** does: one record per target in the clone's shared git dir, read by every session and worktree, private to this machine.
 
 ```bash
-C="bun $HOME/.agents/skills/claims/scripts/claims.ts"
-$C claim '#581' 'path:src/main/services/**' --for '#581' --note 'quit keeps queue'
-$C who pr:621             # exit 1 when another session holds it
-$C claimable              # open ready-for-agent issues free to start
-$C decision 581           # the latest recorded decision on #581
-$C release                # drop all your claims
+claims() { bun "$HOME/.agents/skills/claims/scripts/claims.ts" "$@"; }
+claims claim '#581' 'path:src/main/services/**' --for '#581' --note 'quit keeps queue'
+claims who pr:621             # exit 1 when another session holds it
+claims claimable              # open ready-for-agent issues free to start
+claims decision 581           # the latest recorded decision on #581
+claims release                # drop all your claims
 ```
 
 Targets are `#N` (an issue), `pr:N` and `path:<glob>`. The owner is your desktop session id, read automatically; elsewhere set `CLAIMS_OWNER` to a name for the session. Every subagent of a session shares its claims.

@@ -7,10 +7,14 @@ import * as v from './validate'
 
 const SEVERITIES = ['P0', 'P1', 'P2', 'P3'] as const
 
+// "ui": a defect in what the user sees or how the interface is to use, which
+// only Claude judges; "code": everything else, bugs in UI code included.
+const AREAS = ['code', 'ui'] as const
+
 // The wire schemas carry no bounds (`minLength`, integer limits): Codex's strict
 // structured output rejects some JSON Schema keywords, so values are checked and
 // normalized after parsing instead.
-const findingSchema = v.object({title: v.string(), body: v.string(), file: v.string(), lineStart: v.number(), lineEnd: v.number(), severity: v.enumOf(SEVERITIES), confidence: v.number(), introduced: v.boolean()})
+const findingSchema = v.object({title: v.string(), body: v.string(), file: v.string(), lineStart: v.number(), lineEnd: v.number(), severity: v.enumOf(SEVERITIES), confidence: v.number(), introduced: v.boolean(), area: v.enumOf(AREAS)})
 
 const reviewOutputSchema = v.object({findings: v.array(findingSchema)})
 
@@ -119,9 +123,20 @@ const rank = (f: Finding): number => SEVERITIES.indexOf(f.severity) - f.confiden
 // they made the same claim. With Codex unavailable Claude checks its own
 // reports in a fresh pass, the weaker substitute the report says it is.
 // OpenCode, the weakest model, never checks anything: Claude checks its reports.
+// UI findings stay with Claude even when Codex is available: Codex finds bugs in
+// UI code well but judges looks and usability poorly, so it never gets to drop
+// one of Claude's.
 export function verifierFor(c: Candidate, codexAvailable: boolean): 'claude' | 'codex' {
-	return c.engine === 'claude' && codexAvailable ? 'codex' : 'claude'
+	return c.engine === 'claude' && c.area === 'code' && codexAvailable ? 'codex' : 'claude'
 }
+
+// Files whose change can alter what the user sees; any of them in the diff
+// brings in the UI lane.
+const UI_FILE = /\.(?:tsx|jsx|vue|svelte|astro|html|css|scss|sass|less)$/i
+
+export const touchesUi = (files: Iterable<string>): boolean => [...files].some(f => UI_FILE.test(f))
+
+export const SCREENSHOT_FILE = /\.(?:png|jpe?g|webp|gif)$/i
 
 export interface Checked {
 	verdict: Verdict
@@ -136,13 +151,30 @@ const CLAUDE_TOOLS = ['Read', 'Grep', 'Glob', 'Bash(git diff:*)', 'Bash(git log:
 // PreToolUse hook that rewrites commands (one that turns `git diff` into
 // `wrapper git diff`) leaves them outside the allow-list, so the lane is denied
 // the diff it reviews, and no other hook belongs in a review either.
-export function claudeArgs(prompt: string, schema: OutputJsonSchema, model: string): string[] {
-	return ['-p', '--model', model, '--output-format', 'json', '--json-schema', JSON.stringify(schema), '--settings', JSON.stringify({disableAllHooks: true}), '--permission-mode', 'default', '--allowedTools', ...CLAUDE_TOOLS, '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', '--', prompt]
+// `extraDirs`: folders outside the repository Claude may read, the screenshots.
+export function claudeArgs(prompt: string, schema: OutputJsonSchema, model: string, extraDirs: readonly string[] = []): string[] {
+	return ['-p', '--model', model, '--output-format', 'json', '--json-schema', JSON.stringify(schema), '--settings', JSON.stringify({disableAllHooks: true}), '--permission-mode', 'default', ...extraDirs.flatMap(dir => ['--add-dir', dir]), '--allowedTools', ...CLAUDE_TOOLS, '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', '--', prompt]
+}
+
+export interface CodexModel {
+	model: string
+	effort: string
+}
+
+// The headless Codex call, pinned to a model and effort so the user's own
+// Codex default never decides which model reviews.
+export function codexArgs(prompt: string, schemaFile: string, resultFile: string, {model, effort}: CodexModel): string[] {
+	return ['exec', '-m', model, '-c', `model_reasoning_effort="${effort}"`, '--sandbox', 'read-only', '--output-schema', schemaFile, '--output-last-message', resultFile, prompt]
 }
 
 export const CLAUDE_MODEL_ENV = 'DUAL_REVIEW_CLAUDE_MODEL'
+export const CODEX_MODEL_ENV = 'DUAL_REVIEW_CODEX_MODEL'
+export const CODEX_EFFORT_ENV = 'DUAL_REVIEW_CODEX_EFFORT'
 export const FALLBACK_MODEL_ENV = 'DUAL_REVIEW_FALLBACK_MODEL'
 const DEFAULT_CLAUDE_MODEL = 'opus'
+// The newest Sol, never Astra; move it on when a newer Sol ships.
+const DEFAULT_CODEX_MODEL = 'gpt-6.1-sol'
+const DEFAULT_CODEX_EFFORT = 'high'
 const DEFAULT_FALLBACK_MODEL = 'openrouter/xiaomi/mimo-v2.6-pro'
 
 type Env = Readonly<Record<string, string | undefined>>
@@ -150,6 +182,8 @@ type Env = Readonly<Record<string, string | undefined>>
 // The model every Claude lane and check runs on, pinned so a CLI default never
 // quietly swaps the strongest reviewer for a weaker one.
 export const claudeModelFrom = (env: Env): string => env[CLAUDE_MODEL_ENV]?.trim() || DEFAULT_CLAUDE_MODEL
+
+export const codexModelFrom = (env: Env): CodexModel => ({model: env[CODEX_MODEL_ENV]?.trim() || DEFAULT_CODEX_MODEL, effort: env[CODEX_EFFORT_ENV]?.trim() || DEFAULT_CODEX_EFFORT})
 
 // The OpenCode model that takes Codex's reviewer slot when Codex is unavailable;
 // null when the fallback is switched off with `none`.
@@ -297,6 +331,9 @@ export interface Coverage {
 	// Set when Codex was skipped before the review, so its slot needed a stand-in.
 	fallback: Fallback | null
 	claudeModel: string
+	codexModel: CodexModel
+	// Screenshots the UI lane was given; 0 when it judged from the code alone.
+	screenshots: number
 }
 
 const ENGINE_NAME: Record<Engine, string> = {claude: 'Claude', codex: 'Codex', opencode: 'OpenCode'}
@@ -306,12 +343,20 @@ function describeCheck({author, by}: {author: Engine; by: Engine}): string {
 	return `${ENGINE_NAME[author]}'s findings checked by ${ENGINE_NAME[by]}`
 }
 
-export function coverageSummary({reviewers, verifiers, checks, codexSkipped, fallback, claudeModel}: Coverage): string {
+function describeUi(reviewers: readonly string[], screenshots: number): string {
+	if (!reviewers.includes('claude:ui')) return ''
+	const seen = screenshots === 0 ? 'judged from the code alone, with no screenshots' : `saw ${screenshots} screenshot${screenshots === 1 ? '' : 's'}`
+	return ` The UI lane ${seen}; only Claude checks UI findings.`
+}
+
+export function coverageSummary({reviewers, verifiers, checks, codexSkipped, fallback, claudeModel, codexModel, screenshots}: Coverage): string {
 	const skipped = codexSkipped ? `Codex skipped (${UNAVAILABLE_LABEL[codexSkipped.reason]}: ${codexSkipped.detail})${fallback ? `; ${describeFallback(fallback)}` : ''}. ` : ''
 	if (reviewers.length === 0) return `${skipped}No reviewer completed, so nothing reviewed this change.`
 	const checkers = verifiers.length === 0 ? 'no findings needed checking' : codexSkipped ? checks.map(describeCheck).join('; ') : `findings cross-checked by ${verifiers.join(' and ')}`
 	const claudeRan = verifiers.includes('claude') || reviewers.some(r => r.startsWith('claude:'))
-	return `${skipped}Reviewed by ${reviewers.join(', ')}; ${checkers}.${claudeRan ? ` Claude ran as claude:${claudeModel}.` : ''}`
+	const codexRan = verifiers.includes('codex') || reviewers.some(r => r.startsWith('codex:'))
+	const models = `${claudeRan ? ` Claude ran as claude:${claudeModel}.` : ''}${codexRan ? ` Codex ran as codex:${codexModel.model} at ${codexModel.effort} effort.` : ''}`
+	return `${skipped}Reviewed by ${reviewers.join(', ')}; ${checkers}.${models}${describeUi(reviewers, screenshots)}`
 }
 
 export type Status = Verdict['verdict']
@@ -365,7 +410,8 @@ function renderEntry(r: ResolvedCandidate, claudeModel: string): string {
 	const where = `${r.file}:${r.lineStart}${r.lineEnd === r.lineStart ? '' : `-${r.lineEnd}`}`
 	const also = r.alsoFlaggedBy.length === 0 ? '' : `; also flagged by ${r.alsoFlaggedBy.join(', ')}`
 	const by = r.verifiedBy === null ? 'not checked' : r.escalated ? `refuted by ${r.verifiedBy}, escalated: ${r.severity} from ${claudeModelName(claudeModel)}` : r.verifiedBy === r.engine ? `${r.status} by a second ${r.engine} pass` : `${r.status} by ${r.verifiedBy}`
-	return [`- **[${r.severity}] ${r.title}** — \`${where}\` (${r.engine}:${r.lane}; ${by}${also})`, `  ${r.body.replaceAll('\n', '\n  ')}`, `  _Check:_ ${r.reason}`].join('\n')
+	const ui = r.area === 'ui' && r.lane !== 'ui' ? ', UI' : ''
+	return [`- **[${r.severity}] ${r.title}** — \`${where}\` (${r.engine}:${r.lane}${ui}; ${by}${also})`, `  ${r.body.replaceAll('\n', '\n  ')}`, `  _Check:_ ${r.reason}`].join('\n')
 }
 
 function section(title: string, entries: readonly ResolvedCandidate[], claudeModel: string): string {

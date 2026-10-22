@@ -5,12 +5,15 @@
 // finding the other one reported. Writes report.md and report.json and prints the
 // report.
 //
-//   bun run.ts [--base <rev>] [--light] [--out <dir>]
+//   bun run.ts [--base <rev>] [--light] [--screenshots <dir>] [--out <dir>]
 //
 // --base defaults to the remote's default branch (origin/HEAD, else origin/main);
 // pass the previous review's head to review only the commits since. --light runs
 // Codex alone (Claude still checks its findings), for mechanical changes and fix
-// rounds.
+// rounds. A full run whose diff touches UI files (or any run given
+// --screenshots) adds a fifth Claude lane on UI and UX, and UI findings are
+// checked by Claude only, never Codex. Codex is pinned to DUAL_REVIEW_CODEX_MODEL
+// at DUAL_REVIEW_CODEX_EFFORT (default gpt-6.1-sol, high).
 //
 // When Codex cannot run (usage limit, not logged in, not installed) it is
 // skipped and the report says so. The OpenCode fallback (read-only `plan` agent,
@@ -25,16 +28,21 @@
 // A run that exits 0 or 1 records the commit it reviewed, for check-head.ts.
 
 import {spawn} from 'node:child_process'
-import {mkdir, readFile, writeFile} from 'node:fs/promises'
+import {mkdir, readFile, readdir, stat, writeFile} from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import {parseArgs} from 'node:util'
 import {
 	CLAUDE_MODEL_ENV,
+	CODEX_EFFORT_ENV,
+	CODEX_MODEL_ENV,
 	FALLBACK_MODEL_ENV,
+	SCREENSHOT_FILE,
 	claudeArgs,
 	claudeModelFrom,
 	classifyCodexFailure,
+	codexArgs,
+	codexModelFrom,
 	coverageSummary,
 	fallbackModelFrom,
 	lastJsonObject,
@@ -47,10 +55,12 @@ import {
 	resolveCandidates,
 	reviewJsonSchema,
 	toCandidates,
+	touchesUi,
 	verdictJsonSchema,
 	verifierFor,
 	type Candidate,
 	type Checked,
+	type CodexModel,
 	type CodexUnavailability,
 	type Coverage,
 	type Engine,
@@ -58,24 +68,30 @@ import {
 	type OutputJsonSchema
 } from './core'
 import {gitIn, type Git} from './git'
-import {CLAUDE_LANES, OPENCODE_RETRY, WHOLE_CHANGE_LANE, opencodePrompt, reviewPrompt, verifyPrompt, type Lane, type ReviewScope} from './prompts'
+import {CLAUDE_LANES, OPENCODE_RETRY, UI_LANE, WHOLE_CHANGE_LANE, opencodePrompt, reviewPrompt, verifyPrompt, type Lane, type ReviewScope} from './prompts'
 import {LEARNINGS_ENV, LEARNINGS_FILE, defaultBranch, describeProject, readLearnings, refExists, repoName, reviewDir} from './repo'
 import {recordReviewed, reviewedSnapshot} from './reviewedState'
 
 const TIMEOUT_MS = 30 * 60 * 1000
 
-const USAGE = `Usage: bun run.ts [--base <rev>] [--light] [--out <dir>]
+const USAGE = `Usage: bun run.ts [--base <rev>] [--light] [--screenshots <dir>] [--out <dir>]
 
 Reviews the current branch's change (merge-base of <rev> and HEAD, to HEAD)
-with Codex and Claude, then has each tool check the other's findings.
+with Codex and Claude, then has each tool check the other's findings. A full
+run whose diff touches UI files adds a Claude-only UI lane; Claude alone checks
+UI findings.
 
-  --base <rev>  compare against <rev> (default: the remote's default branch)
-  --light       Codex only, checked by Claude; for mechanical changes and fix rounds
-  --out <dir>   write logs and reports here (default: <git dir>/dual-review/<head>-<time>)
-  --help        print this and the repository context the run would use
+  --base <rev>         compare against <rev> (default: the remote's default branch)
+  --light              Codex only, checked by Claude; for mechanical changes and fix rounds
+  --screenshots <dir>  rendered screenshots of the change (png, jpg, webp, gif) for the
+                       UI lane, which then runs in --light too
+  --out <dir>          write logs and reports here (default: <git dir>/dual-review/<head>-<time>)
+  --help               print this and the repository context the run would use
 
 Models:
   ${CLAUDE_MODEL_ENV}    every Claude lane and check (default: opus)
+  ${CODEX_MODEL_ENV}     the Codex reviewer and checker (default: gpt-6.1-sol)
+  ${CODEX_EFFORT_ENV}    its reasoning effort (default: high)
   ${FALLBACK_MODEL_ENV}  when Codex is unavailable (usage limit, not logged
       in, not installed), an OpenCode reviewer on this model takes Codex's
       whole-change slot, read-only (opencode run --agent plan), and Claude checks
@@ -132,11 +148,12 @@ class CodexUnavailableError extends AgentError {
 	}
 }
 
-async function runCodex(prompt: string, schema: OutputJsonSchema, {outDir}: Agents, name: string): Promise<string> {
+async function runCodex(prompt: string, schema: OutputJsonSchema, agents: Agents, name: string): Promise<string> {
+	const {outDir} = agents
 	const schemaFile = path.join(outDir, `${name}.schema.json`)
 	const resultFile = path.join(outDir, `${name}.json`)
 	await writeFile(schemaFile, JSON.stringify(schema))
-	const result = await runProcess('codex', ['exec', '--sandbox', 'read-only', '--output-schema', schemaFile, '--output-last-message', resultFile, prompt], path.join(outDir, `${name}.log`))
+	const result = await runProcess('codex', codexArgs(prompt, schemaFile, resultFile, agents.codexModel), path.join(outDir, `${name}.log`))
 	if (!result.ok) {
 		const unavailable = classifyCodexFailure(`${result.stderr}\n${result.stdout}`, result.spawnCode)
 		throw unavailable ? new CodexUnavailableError(unavailable) : new AgentError(`codex ${name} ${result.detail}`)
@@ -156,12 +173,15 @@ interface Agents {
 	outDir: string
 	repoRoot: string
 	claudeModel: string
+	codexModel: CodexModel
+	// The screenshots folder, which Claude may read although it is outside the repository.
+	screenshotsDir: string | null
 	// null: the fallback is switched off.
 	fallbackModel: string | null
 }
 
 async function runClaude(prompt: string, schema: OutputJsonSchema, agents: Agents, name: string): Promise<string> {
-	const result = await runProcess('claude', claudeArgs(prompt, schema, agents.claudeModel), path.join(agents.outDir, `${name}.log`))
+	const result = await runProcess('claude', claudeArgs(prompt, schema, agents.claudeModel, agents.screenshotsDir === null ? [] : [agents.screenshotsDir]), path.join(agents.outDir, `${name}.log`))
 	if (!result.ok) throw new AgentError(`claude ${name} ${result.detail}`)
 	const envelope: unknown = JSON.parse(result.stdout)
 	if (typeof envelope !== 'object' || envelope === null || !('structured_output' in envelope)) throw new Error('no structured_output in the response envelope')
@@ -246,9 +266,10 @@ async function review(engine: Engine, lane: Lane, scope: ReviewScope, agents: Ag
 async function verify(engine: 'claude' | 'codex', author: Engine, reports: readonly Candidate[], scope: ReviewScope, agents: Agents): Promise<Map<string, Checked>> {
 	if (reports.length === 0) return new Map()
 	const ids = reports.map(r => r.id)
-	const payload = reports.map(r => ({id: r.id, title: r.title, body: r.body, file: r.file, lineStart: r.lineStart, lineEnd: r.lineEnd, severity: r.severity}))
-	const name = engine === author ? `verify-${engine}-self` : `verify-${engine}-of-${author}`
-	const verdicts = await runAgent(engine, verifyPrompt(scope, JSON.stringify(payload, null, 2), engine === author), verdictJsonSchema, agents, name, value => parseVerdicts(value, ids))
+	const payload = reports.map(r => ({id: r.id, title: r.title, body: r.body, file: r.file, lineStart: r.lineStart, lineEnd: r.lineEnd, severity: r.severity, area: r.area}))
+	const ui = reports.some(r => r.area === 'ui')
+	const name = `${engine === author ? `verify-${engine}-self` : `verify-${engine}-of-${author}`}${reports.every(r => r.area === 'ui') ? '-ui' : ''}`
+	const verdicts = await runAgent(engine, verifyPrompt(scope, JSON.stringify(payload, null, 2), engine === author, ui), verdictJsonSchema, agents, name, value => parseVerdicts(value, ids))
 	return new Map([...verdicts].map(([id, verdict]) => [id, {verdict, by: engine}]))
 }
 
@@ -258,6 +279,22 @@ function defaultBase(git: Git): {base: string; remoteRef: string; remoteExists: 
 	const {branch, remoteRef} = defaultBranch(git)
 	const remoteExists = refExists(git, remoteRef)
 	return {base: remoteExists || !refExists(git, branch) ? remoteRef : branch, remoteRef, remoteExists}
+}
+
+// Every image under the folder, as absolute paths; a folder that is missing or
+// holds none is a mistake, so the run does not start.
+async function listScreenshots(dir: string): Promise<string[]> {
+	const isDir = await stat(dir).then(
+		st => st.isDirectory(),
+		() => false
+	)
+	if (!isDir) throw new Error(`--screenshots ${dir} is not a folder`)
+	const shots = (await readdir(dir, {recursive: true}))
+		.filter(f => SCREENSHOT_FILE.test(f))
+		.sort()
+		.map(f => path.join(dir, f))
+	if (shots.length === 0) throw new Error(`--screenshots ${dir} holds no png, jpg, webp or gif files`)
+	return shots
 }
 
 async function printContext(): Promise<void> {
@@ -283,11 +320,12 @@ Repository context:
   learnings:  ${learnings.sources.length > 0 ? learnings.sources.join(', ') : `none (${LEARNINGS_FILE} or $${LEARNINGS_ENV})`}
   reports:    ${reviewDir(git)}
   claude:     claude:${claudeModelFrom(process.env)}
+  codex:      codex:${codexModelFrom(process.env).model} at ${codexModelFrom(process.env).effort} effort
   fallback:   ${fallback}`)
 }
 
 async function main(): Promise<number> {
-	const {values} = parseArgs({options: {base: {type: 'string'}, light: {type: 'boolean', default: false}, out: {type: 'string'}, help: {type: 'boolean', short: 'h', default: false}}})
+	const {values} = parseArgs({options: {base: {type: 'string'}, light: {type: 'boolean', default: false}, screenshots: {type: 'string'}, out: {type: 'string'}, help: {type: 'boolean', short: 'h', default: false}}})
 	if (values.help) {
 		console.log(USAGE)
 		await printContext()
@@ -312,9 +350,11 @@ async function main(): Promise<number> {
 	const reviewed = remoteExists ? reviewedSnapshot(git, remoteRef, headSha) : null
 	const outDir = path.resolve(repoRoot, values.out ?? path.join(reviewDir(git), `${head}-${Date.now()}`))
 	await mkdir(outDir, {recursive: true})
+	const screenshotsDir = values.screenshots === undefined ? null : path.resolve(values.screenshots)
+	const screenshots = screenshotsDir === null ? [] : await listScreenshots(screenshotsDir)
 	const learnings = await readLearnings(repoRoot, process.env[LEARNINGS_ENV])
 	const project = await describeProject(repoRoot, repoName(git, repoRoot))
-	const scope: ReviewScope = {project, mergeBase, head, commits: run(['log', '--format=- %h %s%n%w(0,2,2)%b', `${mergeBase}..${headSha}`]), files, learnings: learnings.text}
+	const scope: ReviewScope = {project, mergeBase, head, commits: run(['log', '--format=- %h %s%n%w(0,2,2)%b', `${mergeBase}..${headSha}`]), files, learnings: learnings.text, screenshots}
 	const changed = parseChangedRanges(run(['-c', 'core.quotePath=false', 'diff', '-U0', '--no-color', '--no-ext-diff', `${mergeBase}...${headSha}`]))
 
 	const failures: string[] = []
@@ -326,7 +366,7 @@ async function main(): Promise<number> {
 		return true
 	}
 
-	const agents: Agents = {outDir, repoRoot, claudeModel: claudeModelFrom(process.env), fallbackModel: fallbackModelFrom(process.env)}
+	const agents: Agents = {outDir, repoRoot, claudeModel: claudeModelFrom(process.env), codexModel: codexModelFrom(process.env), screenshotsDir, fallbackModel: fallbackModelFrom(process.env)}
 	const ran: string[] = []
 	// Runs one reviewer; a failure is recorded and yields no findings.
 	const runOne = async (engine: Engine, lane: Lane): Promise<Candidate[]> => {
@@ -370,7 +410,9 @@ async function main(): Promise<number> {
 		return runOne('claude', WHOLE_CHANGE_LANE)
 	}
 
-	const first: (readonly [Engine, Lane])[] = [['codex', WHOLE_CHANGE_LANE], ...(values.light ? [] : CLAUDE_LANES.map(lane => ['claude', lane] as const))]
+	// Screenshots ask for the UI lane outright, so a --light fix round on UI gets it too.
+	const uiLane = screenshots.length > 0 || (!values.light && touchesUi(run(['-c', 'core.quotePath=false', 'diff', '--name-only', `${mergeBase}...${headSha}`]).split('\n')))
+	const first: (readonly [Engine, Lane])[] = [['codex', WHOLE_CHANGE_LANE], ...(values.light ? [] : CLAUDE_LANES.map(lane => ['claude', lane] as const)), ...(uiLane ? [['claude', UI_LANE] as const] : [])]
 	console.error(`dual review: ${first.map(([e, l]) => `${e}:${l.id}`).join(', ')} on ${mergeBase}..${head}; claude:${agents.claudeModel}; logs in ${outDir}`)
 	const all = (await Promise.all(first.map(([engine, lane]) => runOne(engine, lane)))).flat()
 
@@ -388,14 +430,21 @@ async function main(): Promise<number> {
 	const AUTHORS = ['claude', 'codex', 'opencode'] as const
 	const byAuthor = (engine: Engine): Candidate[] => all.filter(c => c.engine === engine)
 	console.error(`dual review: ${all.length} findings go to checking (${AUTHORS.map(a => `${byAuthor(a).length} by ${a}`).join(', ')})`)
-	await Promise.all(AUTHORS.filter(author => byAuthor(author).length > 0).map(author => check(author, byAuthor(author))))
+	// One batch per author and checker: Claude's UI findings go to Claude while its
+	// other findings go to Codex.
+	const batches = new Map<string, Candidate[]>()
+	for (const c of all) {
+		const key = `${c.engine}>${verifierFor(c, codex.skipped === null)}`
+		batches.set(key, [...(batches.get(key) ?? []), c])
+	}
+	await Promise.all([...batches.values()].map(reports => check(reports[0].engine, reports)))
 
 	const pairs = new Map<string, {author: Engine; by: Engine}>()
 	for (const c of all) {
 		const by = checks.get(c.id)?.by
 		if (by !== undefined) pairs.set(`${c.engine}>${by}`, {author: c.engine, by})
 	}
-	const coverage: Coverage = {reviewers: ran, verifiers: [...new Set([...checks.values()].map(c => c.by))], checks: [...pairs.values()], codexSkipped: codex.skipped, fallback: fallback.status, claudeModel: agents.claudeModel}
+	const coverage: Coverage = {reviewers: ran, verifiers: [...new Set([...checks.values()].map(c => c.by))], checks: [...pairs.values()], codexSkipped: codex.skipped, fallback: fallback.status, claudeModel: agents.claudeModel, codexModel: agents.codexModel, screenshots: screenshots.length}
 	if (ran.length === 0 && failures.length === 0) failures.push('no reviewer completed')
 
 	const resolved = resolveCandidates(all, checks, changed)

@@ -11,6 +11,9 @@ export interface ReviewScope {
 	commits: string
 	files: string
 	learnings: string
+	// Absolute paths of rendered screenshots of the change, for the UI lane and
+	// for whoever checks a UI finding.
+	screenshots: readonly string[]
 }
 
 export interface Lane {
@@ -61,9 +64,21 @@ Quote the rule a finding rests on.`
 	}
 ]
 
+// Claude only, and only when the change touches UI files or brings screenshots:
+// judging looks and usability is where Claude is far stronger than Codex.
+export const UI_LANE: Lane = {
+	id: 'ui',
+	focus: `What the user sees and does in the changed UI.
+- Layout, spacing, alignment, visual hierarchy and contrast; values that bypass the design system the repository documents (its tokens, variants and components).
+- States the change shows wrong or not at all: loading, empty, error, disabled, focus and hover; long or translated text, narrow and wide windows, light and dark themes.
+- Interaction: which action reads as primary, keyboard reach and focus order, accessible names, motion, and anything that makes a flow slower or more confusing than before.
+- Inconsistency with neighbouring screens and components, and breaches of ${DOCUMENTED_RULES} about UI.
+Judge the rendered result, not only the code: when screenshots are listed, open every one with Read before reporting. Point each finding at the code line to change. These findings take "area": "ui"; a plain code bug you notice here takes "code".`
+}
+
 export const WHOLE_CHANGE_LANE: Lane = {
 	id: 'review',
-	focus: `The whole change: correctness, regressions, broken contracts between callers and callees, races and cleanup, silent failures, type-safety holes at trust boundaries, breaches of ${DOCUMENTED_RULES}, and behaviour changes that have no test.`
+	focus: `The whole change: correctness, regressions, broken contracts between callers and callees, races and cleanup, silent failures, type-safety holes at trust boundaries, breaches of ${DOCUMENTED_RULES}, and behaviour changes that have no test. In UI code, report bugs (wrong state, broken handlers, crashes, missing wiring) but leave judgments of looks and usability to the UI reviewer.`
 }
 
 const SHARED_RULES = `What counts as a finding:
@@ -73,12 +88,14 @@ const SHARED_RULES = `What counts as a finding:
 - A bug that needs particular inputs still counts: name the inputs.
 
 Do not report:
-- Style, naming, formatting, comment wording, or anything the repository's linters, type checker and checks would already catch.
+- Code style, naming, formatting, comment wording, or anything the repository's linters, type checker and checks would already catch. A visual or usability defect in the UI is not style.
 - Generated files: lockfiles, build output, and files the repository marks or documents as generated.
 - Speculation that something "may break" elsewhere without naming the code that breaks.
 - Suggestions to add docstrings, logging for its own sake, or more defensive checks on values that are already validated.
 
 Pre-existing bugs: report one only if it is in or next to the code this change touches, and set "introduced" to false. Set it to true only when this change created or exposed the defect.
+
+Area: "ui" when the defect is in what the user sees or how the interface is to use (layout, visual hierarchy, states shown, text fit, accessibility, interaction); "code" for everything else, bugs in UI code included.
 
 Severity: P0 breaks a main workflow for everyone or loses data; P1 breaks a real workflow under common conditions; P2 wrong under specific conditions; P3 minor. Confidence is your probability, 0 to 1, that the defect is real.
 
@@ -100,6 +117,10 @@ Changed files:
 ${scope.files}`
 }
 
+function screenshotsBlock(screenshots: readonly string[]): string {
+	return screenshots.length === 0 ? '' : `\n\nScreenshots of the change, rendered (open each with Read; the file name says what it shows):\n${screenshots.map(s => `- ${s}`).join('\n')}`
+}
+
 function learningsBlock(learnings: string): string {
 	return learnings.trim() === '' ? '' : `\n\nLessons from earlier reviews in this repository (they override the rules above where they conflict):\n${learnings.trim()}`
 }
@@ -107,7 +128,7 @@ function learningsBlock(learnings: string): string {
 export function reviewPrompt(scope: ReviewScope, lane: Lane): string {
 	return `You are reviewing a code change in ${projectName(scope.project)}. You are read-only: do not edit files, stage, commit or run anything that changes the workspace.${aboutBlock(scope.project)}
 
-${scopeBlock(scope)}
+${scopeBlock(scope)}${lane.id === UI_LANE.id ? screenshotsBlock(scope.screenshots) : ''}
 
 Your focus:
 ${lane.focus}
@@ -118,20 +139,22 @@ Return JSON matching the provided schema.`
 }
 
 // `selfCheck`: the findings came from an earlier Claude pass, because Codex is
-// unavailable. The same model shares the first pass's blind spots, so the prompt
-// tells the checker not to inherit its reasoning.
-export function verifyPrompt(scope: ReviewScope, findingsJson: string, selfCheck: boolean): string {
+// unavailable or they are UI findings. The same model shares the first pass's
+// blind spots, so the prompt tells the checker not to inherit its reasoning.
+// `ui`: some findings are UI findings, so the checker gets the screenshots too.
+export function verifyPrompt(scope: ReviewScope, findingsJson: string, selfCheck: boolean, ui = false): string {
 	const author = selfCheck ? 'An earlier pass by the same model as you (so it may share your blind spots; do not trust its reasoning, re-derive each claim from the code yourself)' : 'Another reviewer'
 	return `${author} found the defects below in a code change in ${projectName(scope.project)}. Your job is to check each one independently against the code. You are read-only: do not edit files, stage, commit or run anything that changes the workspace.${aboutBlock(scope.project)}
 
-${scopeBlock(scope)}
+${scopeBlock(scope)}${ui ? screenshotsBlock(scope.screenshots) : ''}
 
 Findings to check (JSON, one entry per id):
 ${findingsJson}
 
 For each id, open the cited code and the code it depends on, and try to disprove the claim:
 - "confirmed": you traced the failure scenario through the actual code and it happens.
-- "refuted": the premise is wrong: a guard, caller, type, test or earlier step prevents it, the cited code does not do what the finding says, or it is out of scope (style, something the linter or compiler catches, or a lesson below that rules it out).
+- "refuted": the premise is wrong: a guard, caller, type, test or earlier step prevents it, the cited code does not do what the finding says, or it is out of scope (code style, something the linter or compiler catches, or a lesson below that rules it out).
+For a finding with "area": "ui", confirm it when the code, and the screenshots when there are any, show a user would see or hit it; refute it when the repository's documented UI rules allow it or nothing but taste is at stake.
 - "uncertain": it depends on runtime behaviour you cannot establish from the code (an external tool's or the operating system's behaviour, timing) and you could not settle it.
 Be skeptical: a plausible story is not a confirmation. The reason is one or two sentences citing the code that decided it.
 Also set "introduced": true only if this change created or exposed the defect, false if it predates the change.${learningsBlock(scope.learnings)}

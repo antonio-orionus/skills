@@ -1,11 +1,11 @@
 import {describe, expect, it} from 'bun:test'
 
-import {CLAUDE_LANES, OPENCODE_RETRY, WHOLE_CHANGE_LANE, opencodePrompt, reviewPrompt, verifyPrompt, type ReviewScope} from '../scripts/prompts'
+import {CLAUDE_LANES, OPENCODE_RETRY, UI_LANE, WHOLE_CHANGE_LANE, opencodePrompt, reviewPrompt, verifyPrompt, type ReviewScope} from '../scripts/prompts'
 
 const LEARNINGS = '- Do not raise security hardening: this tool runs locally (2026-10-20).'
-const SCOPE: ReviewScope = {project: {name: 'widget', summary: 'Widget renders charts from CSV files.', source: 'AGENTS.md'}, mergeBase: 'abc', head: 'def', commits: '- def a change', files: ' a.ts | 1 +', learnings: LEARNINGS}
+const SCOPE: ReviewScope = {project: {name: 'widget', summary: 'Widget renders charts from CSV files.', source: 'AGENTS.md'}, mergeBase: 'abc', head: 'def', commits: '- def a change', files: ' a.ts | 1 +', learnings: LEARNINGS, screenshots: []}
 
-const allPrompts = (scope: ReviewScope): string[] => [...[WHOLE_CHANGE_LANE, ...CLAUDE_LANES].map(lane => reviewPrompt(scope, lane)), verifyPrompt(scope, '[]', false), verifyPrompt(scope, '[]', true)]
+const allPrompts = (scope: ReviewScope): string[] => [...[WHOLE_CHANGE_LANE, ...CLAUDE_LANES, UI_LANE].map(lane => reviewPrompt(scope, lane)), verifyPrompt(scope, '[]', false), verifyPrompt(scope, '[]', true), verifyPrompt(scope, '[]', true, true)]
 
 const occurrences = (text: string, needle: string): number => text.split(needle).length - 1
 
@@ -40,6 +40,22 @@ describe('dual review prompts', () => {
 	it('keep the markers the fake reviewer in run.test.ts splits on', () => {
 		expect(reviewPrompt(SCOPE, CLAUDE_LANES[0])).toContain('Your focus:\nRegressions')
 		expect(verifyPrompt(SCOPE, '[]', false)).toContain('Findings to check (JSON, one entry per id):\n[]\n\nFor each id')
+	})
+
+	it('show the screenshots to the UI lane and to a UI check only', () => {
+		const shots = {...SCOPE, screenshots: ['/shots/settings-dark.png', '/shots/queue-empty.png']}
+		const block = 'Screenshots of the change, rendered (open each with Read; the file name says what it shows):\n- /shots/settings-dark.png\n- /shots/queue-empty.png'
+		expect(reviewPrompt(shots, UI_LANE)).toContain(block)
+		expect(verifyPrompt(shots, '[]', true, true)).toContain(block)
+		for (const prompt of [...[WHOLE_CHANGE_LANE, ...CLAUDE_LANES].map(lane => reviewPrompt(shots, lane)), verifyPrompt(shots, '[]', false)]) expect(prompt).not.toContain('Screenshots of the change')
+		expect(reviewPrompt(SCOPE, UI_LANE)).not.toContain('Screenshots of the change')
+	})
+
+	it('treat a visual or usability defect as a finding, not as style, and leave its judgment out of the whole-change lane', () => {
+		for (const prompt of allPrompts(SCOPE)) expect(prompt).not.toMatch(/- Style,|\(style,/)
+		expect(reviewPrompt(SCOPE, WHOLE_CHANGE_LANE)).toContain('A visual or usability defect in the UI is not style.')
+		expect(reviewPrompt(SCOPE, WHOLE_CHANGE_LANE)).toContain('leave judgments of looks and usability to the UI reviewer')
+		expect(reviewPrompt(SCOPE, UI_LANE)).toContain('Your focus:\nWhat the user sees')
 	})
 
 	// OpenCode has no structured-output flag, so the schema travels in the prompt.

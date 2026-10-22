@@ -44,8 +44,10 @@ if (prompt.includes('Findings to check')) {
 	log('verify ' + ids.join(','))
 	out({verdicts: ids.map((id) => ({id, verdict: 'confirmed', reason: 'the code does it', introduced: true}))})
 } else {
-	log('review:' + prompt.split('Your focus:\\n')[1].split('\\n')[0])
-	out({findings: process.env.FAKE_FINDING ? [{title: 'Queue drops a job', body: 'On restart the job is lost.', file: 'a.ts', lineStart: 1, lineEnd: 1, severity: process.env.FAKE_SEVERITY ?? 'P2', confidence: 0.9, introduced: true}] : []})
+	const focus = prompt.split('Your focus:\\n')[1].split('\\n')[0]
+	log('review:' + focus)
+	const area = focus.startsWith('What the user sees') ? 'ui' : 'code'
+	out({findings: process.env.FAKE_FINDING ? [{title: 'Queue drops a job', body: 'On restart the job is lost.', file: 'a.ts', lineStart: 1, lineEnd: 1, severity: process.env.FAKE_SEVERITY ?? 'P2', confidence: 0.9, introduced: true, area}] : []})
 }
 `
 
@@ -55,6 +57,7 @@ const fs = require('node:fs')
 const args = process.argv.slice(2)
 const prompt = args[args.length - 1]
 const write = (value) => fs.writeFileSync(args[args.indexOf('--output-last-message') + 1], JSON.stringify(value))
+if (process.env.FAKE_CODEX_ARGS) fs.appendFileSync(process.env.FAKE_CODEX_ARGS, JSON.stringify(args.slice(0, -1)) + '\\n')
 if (prompt.includes('Findings to check')) {
 	const ids = JSON.parse(prompt.split('Findings to check (JSON, one entry per id):\\n')[1].split('\\n\\nFor each id')[0]).map((f) => f.id)
 	fs.appendFileSync(process.env.FAKE_LOG, 'codex:verify ' + ids.join(',') + '\\n')
@@ -78,7 +81,7 @@ const mode = process.env.FAKE_OPENCODE ?? 'events'
 const retry = args.includes('--session')
 fs.appendFileSync(process.env.FAKE_LOG, (prompt.includes('Findings to check') ? 'opencode:verify' : retry ? 'opencode:retry' : 'opencode:review') + '\\n')
 if (process.env.FAKE_OPENCODE_ARGS) fs.appendFileSync(process.env.FAKE_OPENCODE_ARGS, JSON.stringify({args: args.slice(0, -1), cwd: process.cwd()}) + '\\n')
-const review = JSON.stringify({findings: process.env.FAKE_OPENCODE_FINDING ? [{title: 'Off by one', body: 'The loop skips the last item.', file: 'a.ts', lineStart: 1, lineEnd: 1, severity: 'P1', confidence: 0.7, introduced: true}] : []})
+const review = JSON.stringify({findings: process.env.FAKE_OPENCODE_FINDING ? [{title: 'Off by one', body: 'The loop skips the last item.', file: 'a.ts', lineStart: 1, lineEnd: 1, severity: 'P1', confidence: 0.7, introduced: true, area: 'code'}] : []})
 const event = (type, extra) => process.stdout.write(JSON.stringify({type, timestamp: Date.now(), sessionID: 'ses_fake', ...extra}) + '\\n')
 const say = (text) => event('text', {part: {id: 'prt_' + Math.random(), type: 'text', text}})
 if (mode === 'error') {
@@ -147,7 +150,7 @@ describe.skipIf(!sh)('run.ts without a usable Codex', () => {
 		const result = spawnSync(process.execPath, [RUN_TS, ...(opts.base === null ? [] : ['--base', opts.base ?? 'main']), ...(opts.out === false ? [] : ['--out', out]), ...args], {
 			cwd: path.join(repo, opts.cwd ?? ''),
 			encoding: 'utf8',
-			env: {...process.env, DUAL_REVIEW_FALLBACK_MODEL: '', DUAL_REVIEW_CLAUDE_MODEL: '', PATH: [bin, ...inherited].join(path.delimiter), FAKE_LOG: logFile, ...opts.env}
+			env: {...process.env, DUAL_REVIEW_FALLBACK_MODEL: '', DUAL_REVIEW_CLAUDE_MODEL: '', DUAL_REVIEW_CODEX_MODEL: '', DUAL_REVIEW_CODEX_EFFORT: '', PATH: [bin, ...inherited].join(path.delimiter), FAKE_LOG: logFile, ...opts.env}
 		})
 		const reportDir = opts.out === false ? path.dirname(/report at (.+)$/m.exec(result.stderr)?.[1] ?? '') : out
 		return {status: result.status, stdout: result.stdout, stderr: result.stderr, log: readFileSync(logFile, 'utf8').split('\n').filter(Boolean), json: JSON.parse(readFileSync(path.join(reportDir, 'report.json'), 'utf8')), reportDir}
@@ -314,6 +317,85 @@ describe.skipIf(!sh)('run.ts without a usable Codex', () => {
 			const p2 = run('escalate-p2', [], {codex: CODEX_OK, env: {FAKE_FINDING: '1'}})
 			expect(p2.status).toBe(0)
 			expect(p2.stdout).toContain('## Refuted (4)')
+		})
+
+		it('pins Codex to the newest Sol at high effort, and to DUAL_REVIEW_CODEX_MODEL and _EFFORT when set', () => {
+			const argsFile = path.join(root, 'codex-args.jsonl')
+			const calls = (): string[][] =>
+				readFileSync(argsFile, 'utf8')
+					.split('\n')
+					.filter(Boolean)
+					.map(line => JSON.parse(line))
+			const r = run('sol', [], {codex: CODEX_OK, env: {FAKE_FINDING: '1', FAKE_CODEX_ARGS: argsFile}})
+			expect(calls()).toHaveLength(2)
+			for (const args of calls()) expect(args.slice(0, 5)).toEqual(['exec', '-m', 'gpt-6.1-sol', '-c', 'model_reasoning_effort="high"'])
+			expect(r.stdout).toContain('Codex ran as codex:gpt-6.1-sol at high effort.')
+			expect(r.json.coverage).toMatchObject({codexModel: {model: 'gpt-6.1-sol', effort: 'high'}})
+			rmSync(argsFile)
+			run('sol-env', ['--light'], {codex: CODEX_OK, env: {FAKE_CODEX_ARGS: argsFile, DUAL_REVIEW_CODEX_MODEL: 'gpt-7-sol', DUAL_REVIEW_CODEX_EFFORT: 'xhigh'}})
+			expect(calls()[0]?.slice(0, 5)).toEqual(['exec', '-m', 'gpt-7-sol', '-c', 'model_reasoning_effort="xhigh"'])
+		})
+
+		describe('on a change that touches UI files', () => {
+			const shots = () => path.join(root, 'shots')
+			beforeAll(() => {
+				git('checkout', '-b', 'feature-ui')
+				writeFileSync(path.join(repo, 'Card.tsx'), 'export const Card = () => null\n')
+				git('add', '.')
+				git('commit', '-m', 'feat: add a card')
+				mkdirSync(path.join(shots(), 'dark'), {recursive: true})
+				writeFileSync(path.join(shots(), 'card-empty.png'), '')
+				writeFileSync(path.join(shots(), 'dark', 'card-error.webp'), '')
+				writeFileSync(path.join(shots(), 'notes.txt'), '')
+			})
+			afterAll(() => {
+				git('checkout', 'feature')
+				git('branch', '-D', 'feature-ui')
+			})
+
+			it('adds a fifth Claude lane on UI, and Claude, not Codex, checks its findings', () => {
+				const r = run('ui-full', [], {codex: CODEX_OK, env: {FAKE_FINDING: '1', FAKE_SEVERITY: 'P3'}})
+				expect(r.log.filter(l => l.startsWith('review:'))).toHaveLength(5)
+				expect(r.log).toContain('verify claude-ui-1')
+				expect(r.log.find(l => l.startsWith('codex:verify '))?.split(' ')[1]?.split(',')).toHaveLength(4)
+				expect(r.json.coverage.reviewers).toContain('claude:ui')
+				expect(r.stdout).toContain('claude:ui; confirmed by a second claude pass')
+				expect(r.stdout).toContain('The UI lane judged from the code alone, with no screenshots; only Claude checks UI findings.')
+				expect(r.status).toBe(1)
+			})
+
+			it('leaves the UI lane out of --light unless screenshots come with it', () => {
+				expect(run('ui-light', ['--light'], {codex: CODEX_OK}).log).toEqual(['codex:review'])
+				const r = run('ui-light-shots', ['--light', '--screenshots', shots()], {codex: CODEX_OK})
+				expect(r.log).toEqual(expect.arrayContaining(['codex:review', expect.stringMatching(/^review:What the user sees/)]))
+			})
+
+			it('hands the UI lane and its checker every image under --screenshots, readable outside the repository', () => {
+				const prompts = path.join(root, 'ui-prompts.txt')
+				const argsFile = path.join(root, 'ui-claude-args.jsonl')
+				const s = run('ui-shots', ['--screenshots', shots()], {codex: CODEX_OK, env: {FAKE_FINDING: '1', FAKE_PROMPT: prompts, FAKE_ARGS: argsFile}})
+				const sent = readFileSync(prompts, 'utf8').split('\n=====\n').filter(Boolean)
+				const listing = `- ${path.join(shots(), 'card-empty.png')}\n- ${path.join(shots(), 'dark', 'card-error.webp')}`
+				expect(sent.filter(p => p.includes(listing)).map(p => (p.includes('Findings to check') ? 'verify' : p.split('Your focus:\n')[1]?.split('\n')[0]))).toEqual(['What the user sees and does in the changed UI.', 'verify'])
+				expect(sent.some(p => p.includes('notes.txt'))).toBe(false)
+				for (const line of readFileSync(argsFile, 'utf8').split('\n').filter(Boolean)) {
+					const args: string[] = JSON.parse(line)
+					expect(args[args.indexOf('--add-dir') + 1]).toBe(shots())
+				}
+				expect(s.stdout).toContain('The UI lane saw 2 screenshots')
+				expect(s.json.coverage).toMatchObject({screenshots: 2})
+			})
+
+			it('does not start when --screenshots names no folder or one without images', () => {
+				const empty = path.join(root, 'no-images')
+				mkdirSync(empty, {recursive: true})
+				writeFileSync(path.join(empty, 'notes.txt'), '')
+				for (const dir of [path.join(root, 'missing'), empty]) {
+					const r = spawnSync(process.execPath, [RUN_TS, '--base', 'main', '--screenshots', dir], {cwd: repo, encoding: 'utf8'})
+					expect(r.status).toBe(2)
+					expect(r.stderr).toContain(`--screenshots ${dir}`)
+				}
+			})
 		})
 	})
 

@@ -5,10 +5,12 @@ description: Local cross-checked code review of the current branch by the Claude
 
 # Dual review
 
-Codex reviews the whole change; Claude, pinned to Opus, reviews it in four
-lanes (regressions, silent failures, types and documented rules, tests). Each
-tool then checks every finding the other reported, and the result is sorted
-into what this change must fix and what predates it. Needs `git`, `bun`, and
+Codex, pinned to the newest Sol at high effort, reviews the whole change;
+Claude, pinned to Opus, reviews it in four lanes (regressions, silent failures,
+types and documented rules, tests), plus a fifth on UI and UX when the change
+touches UI files. Each tool then checks every finding the other reported, except
+UI findings, which only Claude judges. The result is sorted into what this
+change must fix and what predates it. Needs `git`, `bun`, and
 the `claude` and `codex` CLIs logged in; no API keys. The `opencode` CLI is
 optional: it stands in for Codex when Codex is unavailable.
 
@@ -18,17 +20,28 @@ last.
 | Role | Who |
 | --- | --- |
 | Find | Opus lanes + Codex, or the OpenCode fallback when Codex is out |
+| Judge looks and usability (UI lane) | Opus only |
 | Check Codex/OpenCode findings | Opus |
 | Check Opus findings | Codex (or a second Opus pass when Codex is out) |
+| Check Opus UI findings | A second Opus pass, never Codex |
 | P0/P1 Opus finding refuted by a weaker checker | Uncertain, never dropped |
 
-`DUAL_REVIEW_CLAUDE_MODEL` changes the Claude model (default `opus`).
+Codex still reviews UI code for bugs (wrong state, broken handlers, crashes);
+it is told to leave looks and usability to the UI lane, because it judges them
+poorly. Every finding carries an `area`, `ui` or `code`, and that routes it.
+
+| Variable | Default |
+| --- | --- |
+| `DUAL_REVIEW_CLAUDE_MODEL` | `opus` |
+| `DUAL_REVIEW_CODEX_MODEL` | `gpt-6.1-sol`: the newest Sol, never Astra; move it on when a newer Sol ships |
+| `DUAL_REVIEW_CODEX_EFFORT` | `high` |
 
 ```bash
 DR="bun $HOME/.agents/skills/dual-review/scripts"
 $DR/run.ts                          # behaviour changes: Codex + four Claude lanes
 $DR/run.ts --light                  # mechanical or behaviour-free changes: Codex alone, checked by Claude
 $DR/run.ts --light --base <sha>     # fix round: only the commits since the head the last round reviewed
+$DR/run.ts --screenshots <dir>      # UI change: give the UI lane rendered screenshots
 $DR/check-head.ts                   # right before every push
 ```
 
@@ -37,6 +50,21 @@ never the working tree. A full run takes several minutes, so run it in the
 background. `--base` defaults to the remote's default branch (`origin/HEAD`,
 else `origin/main`). `--help` prints the options and the context a run would
 use (project, base, learnings, report folder) without reviewing anything.
+
+## UI lane and screenshots
+
+A full run adds the UI lane when the diff touches `.tsx`, `.jsx`, `.vue`,
+`.svelte`, `.astro`, `.html` or a stylesheet. It checks layout, hierarchy, the
+documented design system, states (loading, empty, error, focus, long or
+translated text, themes) and interaction. Reading code alone, it cannot see
+whether a screen looks right, so for a UI change capture screenshots of the
+affected states first and pass the folder with `--screenshots <dir>`. Every
+png, jpg, webp or gif under it goes to the UI lane and to the Opus pass that
+checks UI findings; name each file after what it shows (`settings-dark.png`).
+`--screenshots` also brings the UI lane into a `--light` fix round. The
+coverage line says how many screenshots the lane saw, or that it judged from
+the code alone. How to capture them is the repository's business (its visual
+debugging docs).
 
 ## Exit codes
 
@@ -65,7 +93,12 @@ coverage**, says who reviewed and who checked; quote it in the PR body.
   one here only when it sits in code you touched and the fix is small; record
   the rest wherever the project tracks issues.
 - **Refuted**: skim. When a refutation will recur, add a line to the review
-  learnings.
+  learnings. An Opus pass refutes a UI finding when the documented UI rules
+  allow it or only taste is at stake, and its reason says which.
+
+Visual and usability defects count as findings; only code style, naming and
+formatting are out of scope. A UI entry from a lane other than `ui` is tagged
+`UI` in the report.
 
 After fixing, run one `--light --base <reviewed head>` round on the fix
 commits. Two rounds at most; take anything a third would need to the user.

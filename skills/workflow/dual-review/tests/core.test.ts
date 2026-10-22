@@ -4,6 +4,8 @@ import {
 	claudeArgs,
 	claudeModelFrom,
 	classifyCodexFailure,
+	codexArgs,
+	codexModelFrom,
 	coverageSummary,
 	fallbackModelFrom,
 	lastJsonObject,
@@ -16,6 +18,7 @@ import {
 	resolveCandidates,
 	reviewJsonSchema,
 	toCandidates,
+	touchesUi,
 	verdictJsonSchema,
 	verifierFor,
 	type Candidate,
@@ -28,7 +31,7 @@ import {
 const ROOT = '/repo'
 
 function finding(overrides: Partial<Finding> = {}): Finding {
-	return {title: 'Drop the stale job', body: 'When the queue restarts, the job is lost.', file: 'src/main/queue.ts', lineStart: 10, lineEnd: 12, severity: 'P2', confidence: 0.8, introduced: true, ...overrides}
+	return {title: 'Drop the stale job', body: 'When the queue restarts, the job is lost.', file: 'src/main/queue.ts', lineStart: 10, lineEnd: 12, severity: 'P2', confidence: 0.8, introduced: true, area: 'code', ...overrides}
 }
 
 function candidates(engine: Engine, lane: string, ...findings: Finding[]): Candidate[] {
@@ -78,8 +81,9 @@ describe('JSON schemas', () => {
 	})
 })
 
-// What the CLIs were handed before the validator replaced zod, byte for byte.
-const REVIEW_SCHEMA = {type: 'object', properties: {findings: {type: 'array', items: {type: 'object', properties: {title: {type: 'string'}, body: {type: 'string'}, file: {type: 'string'}, lineStart: {type: 'number'}, lineEnd: {type: 'number'}, severity: {type: 'string', enum: ['P0', 'P1', 'P2', 'P3']}, confidence: {type: 'number'}, introduced: {type: 'boolean'}}, required: ['title', 'body', 'file', 'lineStart', 'lineEnd', 'severity', 'confidence', 'introduced'], additionalProperties: false}}}, required: ['findings'], additionalProperties: false}
+// What the CLIs were handed before the validator replaced zod, byte for byte,
+// plus the "area" field the UI routing added.
+const REVIEW_SCHEMA = {type: 'object', properties: {findings: {type: 'array', items: {type: 'object', properties: {title: {type: 'string'}, body: {type: 'string'}, file: {type: 'string'}, lineStart: {type: 'number'}, lineEnd: {type: 'number'}, severity: {type: 'string', enum: ['P0', 'P1', 'P2', 'P3']}, confidence: {type: 'number'}, introduced: {type: 'boolean'}, area: {type: 'string', enum: ['code', 'ui']}}, required: ['title', 'body', 'file', 'lineStart', 'lineEnd', 'severity', 'confidence', 'introduced', 'area'], additionalProperties: false}}}, required: ['findings'], additionalProperties: false}
 const VERDICT_SCHEMA = {type: 'object', properties: {verdicts: {type: 'array', items: {type: 'object', properties: {id: {type: 'string'}, verdict: {type: 'string', enum: ['confirmed', 'refuted', 'uncertain']}, reason: {type: 'string'}, introduced: {type: 'boolean'}}, required: ['id', 'verdict', 'reason', 'introduced'], additionalProperties: false}}}, required: ['verdicts'], additionalProperties: false}
 
 describe('wire schemas', () => {
@@ -161,6 +165,32 @@ describe('verifierFor', () => {
 		const all = candidates('opencode', 'review', finding(), finding({lineStart: 300}))
 		expect(all.map(c => verifierFor(c, true))).toEqual(['claude', 'claude'])
 		expect(all.map(c => verifierFor(c, false))).toEqual(['claude', 'claude'])
+	})
+
+	// Codex judges looks and usability poorly, so it never gets to drop one of Claude's UI findings.
+	it('keeps Claude’s UI findings with Claude even when Codex is available, and still sends Codex’s UI findings to Claude', () => {
+		const all = [...candidates('claude', 'ui', finding({area: 'ui'})), ...candidates('claude', 'regressions', finding({area: 'ui'}), finding()), ...candidates('codex', 'review', finding({area: 'ui'}))]
+		expect(all.map(c => verifierFor(c, true))).toEqual(['claude', 'claude', 'codex', 'claude'])
+	})
+})
+
+describe('touchesUi', () => {
+	it('brings in the UI lane for components and stylesheets, not for logic or docs', () => {
+		expect(touchesUi(['src/main/queue.ts', 'src/renderer/Card.tsx'])).toBe(true)
+		expect(touchesUi(['src/styles/app.CSS'])).toBe(true)
+		expect(touchesUi(['src/main/queue.ts', 'README.md', ''])).toBe(false)
+	})
+})
+
+describe('Codex model', () => {
+	it('defaults to the newest Sol at high effort, and the env overrides each', () => {
+		expect(codexModelFrom({})).toEqual({model: 'gpt-6.1-sol', effort: 'high'})
+		expect(codexModelFrom({DUAL_REVIEW_CODEX_MODEL: ' gpt-7-sol ', DUAL_REVIEW_CODEX_EFFORT: 'xhigh'})).toEqual({model: 'gpt-7-sol', effort: 'xhigh'})
+		expect(codexModelFrom({DUAL_REVIEW_CODEX_MODEL: '', DUAL_REVIEW_CODEX_EFFORT: ' '})).toEqual({model: 'gpt-6.1-sol', effort: 'high'})
+	})
+
+	it('passes both to codex exec, so the user’s Codex default never picks the reviewer', () => {
+		expect(codexArgs('the prompt', 's.json', 'r.json', {model: 'gpt-6.1-sol', effort: 'high'})).toEqual(['exec', '-m', 'gpt-6.1-sol', '-c', 'model_reasoning_effort="high"', '--sandbox', 'read-only', '--output-schema', 's.json', '--output-last-message', 'r.json', 'the prompt'])
 	})
 })
 
@@ -274,6 +304,7 @@ describe('needsAction', () => {
 
 const USAGE_LIMIT = {reason: 'usage-limit', detail: 'You’ve hit your usage limit. Try again at Oct 27th, 2026 9:20 AM.'} as const
 const MIMO = 'openrouter/xiaomi/mimo-v2.6-pro'
+const SOL = {model: 'gpt-6.1-sol', effort: 'high'}
 const BOTH: Coverage = {
 	reviewers: ['codex:review', 'claude:regressions'],
 	verifiers: ['claude', 'codex'],
@@ -283,9 +314,11 @@ const BOTH: Coverage = {
 	],
 	codexSkipped: null,
 	fallback: null,
-	claudeModel: 'opus'
+	claudeModel: 'opus',
+	codexModel: SOL,
+	screenshots: 0
 }
-const NO_CODEX: Coverage = {reviewers: ['claude:review'], verifiers: ['claude'], checks: [{author: 'claude', by: 'claude'}], codexSkipped: USAGE_LIMIT, fallback: {status: 'disabled'}, claudeModel: 'opus'}
+const NO_CODEX: Coverage = {reviewers: ['claude:review'], verifiers: ['claude'], checks: [{author: 'claude', by: 'claude'}], codexSkipped: USAGE_LIMIT, fallback: {status: 'disabled'}, claudeModel: 'opus', codexModel: SOL, screenshots: 0}
 const WITH_FALLBACK: Coverage = {
 	reviewers: ['opencode:review', 'claude:regressions'],
 	verifiers: ['claude'],
@@ -295,7 +328,9 @@ const WITH_FALLBACK: Coverage = {
 	],
 	codexSkipped: USAGE_LIMIT,
 	fallback: {status: 'reviewed', model: MIMO},
-	claudeModel: 'opus'
+	claudeModel: 'opus',
+	codexModel: SOL,
+	screenshots: 0
 }
 
 // Copied from `codex exec` on 2026-10-21, when the subscription ran out.
@@ -343,8 +378,17 @@ describe('coverage in the report', () => {
 		expect(report(NO_CODEX)).toContain(line)
 	})
 
-	it('lists both tools and the Claude model when Codex ran', () => {
-		expect(coverageSummary(BOTH)).toBe('Reviewed by codex:review, claude:regressions; findings cross-checked by claude and codex. Claude ran as claude:opus.')
+	it('lists both tools and both models when Codex ran', () => {
+		expect(coverageSummary(BOTH)).toBe('Reviewed by codex:review, claude:regressions; findings cross-checked by claude and codex. Claude ran as claude:opus. Codex ran as codex:gpt-6.1-sol at high effort.')
+		expect(coverageSummary(NO_CODEX)).not.toContain('Codex ran as')
+	})
+
+	it('says what the UI lane saw and that only Claude checks UI findings', () => {
+		const ui = {...BOTH, reviewers: [...BOTH.reviewers, 'claude:ui']}
+		expect(coverageSummary({...ui, screenshots: 3})).toEndWith(' The UI lane saw 3 screenshots; only Claude checks UI findings.')
+		expect(coverageSummary({...ui, screenshots: 1})).toContain('saw 1 screenshot;')
+		expect(coverageSummary(ui)).toContain('The UI lane judged from the code alone, with no screenshots')
+		expect(coverageSummary(BOTH)).not.toContain('UI lane')
 	})
 
 	it('names the fallback reviewer and says Claude checked its findings', () => {

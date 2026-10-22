@@ -131,3 +131,18 @@ describe('threads', () => {
 test('usage error exits 2', () => {
 	expect(run({steps: []}, 'bogus').code).toBe(2)
 })
+
+describe('reply', () => {
+	const MARKER = '> *Posted by an agent.*\n<!-- agent:v1 -->\n\n'
+
+	test('starts the reply with the agent marker, so readers can tell it from the maintainer', () => {
+		const r = run({steps: [{head: HEAD, comments: []}]}, 'reply', 'PRRT_x', 'Refuted: the guard on line 4 already handles it.')
+		expect(r.code).toBe(0)
+		expect(r.posted).toBe(`reply ${JSON.stringify(`${MARKER}Refuted: the guard on line 4 already handles it.`)}\n`)
+	})
+
+	test('does not add a second marker to a body that has one', () => {
+		const r = run({steps: [{head: HEAD, comments: []}]}, 'reply', 'PRRT_x', `${MARKER}Fixed in abc123.`)
+		expect(r.posted).toBe(`reply ${JSON.stringify(`${MARKER}Fixed in abc123.`)}\n`)
+	})
+})

@@ -397,10 +397,15 @@ async function readBody(arg: string | undefined): Promise<string> {
 	return body
 }
 
+// Replies go out from the maintainer's own account, so they open with a visible
+// line and a hidden marker that say an agent wrote them.
+const AGENT_MARKER = '> *Posted by an agent.*\n<!-- agent:v1 -->\n\n'
+const withAgentMarker = (body: string): string => (body.includes('<!-- agent:v1 -->') ? body : AGENT_MARKER + body)
+
 async function cmdReply(args: Args): Promise<number> {
 	const [threadId, bodyArg] = args.positional
 	if (!threadId) throw new UsageError('reply needs a thread id (PRRT_…)')
-	const body = await readBody(bodyArg)
+	const body = withAgentMarker(await readBody(bodyArg))
 	const out = gh(['api', 'graphql', '-f', `threadId=${threadId}`, '-f', `body=${body}`, '-f', 'query=mutation($threadId:ID!,$body:String!){addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$threadId,body:$body}){comment{url}}}'])
 	print({action: 'replied', thread: threadId, url: JSON.parse(out).data?.addPullRequestReviewThreadReply?.comment?.url ?? null})
 	return 0

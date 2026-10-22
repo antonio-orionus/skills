@@ -29,6 +29,10 @@ if (args[0] === 'pr' && args[1] === 'view') {
 	out({number: 7, url: 'https://github.com/o/r/pull/7', state: s.state ?? 'OPEN', isDraft: false, headRefOid: s.head})
 } else if (args[0] === 'pr' && args[1] === 'comment') {
 	appendFileSync(process.env.FAKE_GH_LOG!, `${args.join(' ')}\n`)
+} else if (args[0] === 'api' && args[1] === 'graphql' && args.some(a => a.includes('addPullRequestReviewThreadReply'))) {
+	const body = args.find(a => a.startsWith('body='))?.slice('body='.length) ?? ''
+	appendFileSync(process.env.FAKE_GH_LOG!, `reply ${JSON.stringify(body)}\n`)
+	out({data: {addPullRequestReviewThreadReply: {comment: {url: 'https://github.com/o/r/pull/7#discussion_r10'}}}})
 } else if (args[0] === 'api' && args[1] === 'graphql') {
 	out({data: {repository: {pullRequest: {reviewThreads: {pageInfo: {hasNextPage: false, endCursor: null}, nodes: scenario.threads ?? []}}}}})
 } else if (args[0] === 'api' && args[1]?.startsWith('repos/') && args[1].includes('/commits/')) {

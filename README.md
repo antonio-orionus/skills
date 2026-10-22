@@ -18,7 +18,7 @@ npx skills add antonio-orionus/skills
 | [`pr-review-watch`](skills/workflow/pr-review-watch/SKILL.md) | Trigger, wait for and read a CodeRabbit review on a GitHub PR without polling loops |
 | [`orchestrate`](skills/workflow/orchestrate/SKILL.md) | Turn a backlog into merged PRs by verifying candidates and dispatching other agent sessions |
 | [`find-test-gaps`](skills/testing/find-test-gaps/SKILL.md) | Find missing or weak tests across a whole application, with extra checks for Electron apps |
-| [`triage`](skills/adapted/triage/SKILL.md) | Adapted from [mattpocock/skills](https://github.com/mattpocock/skills/tree/main/skills/engineering/triage): move issues through triage roles, without the required AI disclaimer on every comment |
+| [`triage`](skills/adapted/triage/SKILL.md) | Adapted from [mattpocock/skills](https://github.com/mattpocock/skills/tree/main/skills/engineering/triage): move issues through triage roles; every post opens with a neutral agent marker (`> *Posted by an agent.*` plus a hidden `<!-- agent:v1 -->`) instead of the AI disclaimer |
 
 ## Try `project-readme`
 

@@ -22,7 +22,7 @@ branch's PR). Add `--repo OWNER/NAME` outside a checkout.
 | `trigger [pr] [--force] [--full]` | Posts `@coderabbitai review` only if the head commit is not reviewed, no run is going, and no cooldown is active |
 | `wait [pr] [--timeout S] [--trigger] [--auto-retry] [--sha SHA]` | Polls with backoff (20 s → 90 s, default timeout 1800 s) until a terminal state |
 | `threads [pr] [--full]` | Unresolved, non-outdated bot threads: id, path, line, severity, title, compact body |
-| `reply <thread-id> <body\|->` | Replies in a thread (`-` reads stdin) |
+| `reply <thread-id> <body\|->` | Replies in a thread (`-` reads stdin), opening with the agent marker (`> *Posted by an agent.*` plus `<!-- agent:v1 -->`) unless the body has it |
 | `resolve <thread-id>...` | Resolves threads |
 
 ## Rules

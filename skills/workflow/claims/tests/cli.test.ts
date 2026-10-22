@@ -122,6 +122,15 @@ describe('claims CLI', () => {
 		expect(await Bun.file(file).text()).toBe('{"version": 1, "claims": [')
 	})
 
+	it('releases freely over a claim that expired', async () => {
+		const short = {...process.env, ...GIT_ENV, PATH: `${FAKE_BIN}:${process.env.PATH}`, FAKE_GH_STATE: ghState, CLAUDE_CODE_HOST_SESSION_ID: undefined, CLAIMS_OWNER: 'local_a', CLAIMS_TTL_HOURS: '0.0001'}
+		expect(spawnSync('bun', [CLI, 'claim', '#1'], {cwd: repo, env: short}).status).toBe(0)
+		await Bun.sleep(500)
+		const result = run('local_b', 'release', '#1')
+		expect(result.code).toBe(0)
+		expect(result.err).not.toContain('still held')
+	})
+
 	it("says when release left another session's claim in place", () => {
 		expect(run('local_a', 'claim', '#1').code).toBe(0)
 		const result = run('local_b', 'release', '#1')

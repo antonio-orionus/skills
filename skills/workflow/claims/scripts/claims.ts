@@ -181,7 +181,8 @@ function main(argv: string[]): number {
 			const me = owner()
 			const targets = args.length > 0 ? args.map(parseTarget) : null
 			const out = withStore(store => {
-				const r = release(store, targets, me, force)
+				// Expired claims are nobody's, so they never count as kept.
+				const r = release(prune(store, now, new Set()), targets, me, force)
 				return {store: r.store, result: r}
 			})
 			console.log(out.released.length > 0 ? `released ${out.released.join(' ')}` : 'released nothing')

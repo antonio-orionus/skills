@@ -1,6 +1,6 @@
 ---
 name: pr-review-watch
-description: Use when a GitHub PR needs a CodeRabbit (or other AI-bot) review triggered, waited on, or read: after pushing or opening a PR, when asked to "wait for CodeRabbit", "get the review", "check if CodeRabbit is done", when a review seems stuck, rate-limited, skipped or failed, or when unresolved bot review threads must be listed, answered or resolved. Replaces hand-written sleep/poll loops and wait-coderabbit scripts. Works on any repo via the gh CLI.
+description: "Use when a GitHub PR needs a CodeRabbit (or other AI-bot) review triggered, waited on, or read: after pushing or opening a PR, when asked to \"wait for CodeRabbit\", \"get the review\", \"check if CodeRabbit is done\", when a review seems stuck, rate-limited, skipped or failed, or when unresolved bot review threads must be listed, answered or resolved. Replaces hand-written sleep/poll loops and wait-coderabbit scripts. Works on any repo via the gh CLI."
 ---
 
 # PR review watch

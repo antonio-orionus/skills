@@ -4,6 +4,7 @@ import {
 	claudeArgs,
 	claudeModelFrom,
 	classifyCodexFailure,
+	CODEX_REVIEW_PROFILE,
 	codexArgs,
 	codexModelFrom,
 	coverageSummary,
@@ -190,7 +191,17 @@ describe('Codex model', () => {
 	})
 
 	it('passes both to codex exec, so the user’s Codex default never picks the reviewer', () => {
-		expect(codexArgs('the prompt', 's.json', 'r.json', {model: 'gpt-6.1-sol', effort: 'high'})).toEqual(['exec', '-m', 'gpt-6.1-sol', '-c', 'model_reasoning_effort="high"', '--sandbox', 'read-only', '--output-schema', 's.json', '--output-last-message', 'r.json', 'the prompt'])
+		expect(codexArgs('the prompt', 's.json', 'r.json', {model: 'gpt-6.1-sol', effort: 'high'})).toEqual(['exec', '-m', 'gpt-6.1-sol', '-c', 'model_reasoning_effort="high"', '-c', 'default_permissions="dual-review"', '-c', CODEX_REVIEW_PROFILE, '--output-schema', 's.json', '--output-last-message', 'r.json', 'the prompt'])
+	})
+
+	it('reviews read-only and never reads secret files, with no profile needed in the user’s config', () => {
+		const args = codexArgs('p', 's.json', 'r.json', {model: 'm', effort: 'high'})
+		// --sandbox would switch Codex back to the legacy sandbox and drop the profile.
+		expect(args).not.toContain('--sandbox')
+		expect(CODEX_REVIEW_PROFILE).toStartWith('permissions.dual-review={extends=":read-only"')
+		for (const glob of ['"~/**/.env"="deny"', '"~/**/.env.*"="deny"', '"~/**/.dev.vars"="deny"', '"~/.ssh"="deny"', '"**/.env"="deny"', '"**/.env.*"="deny"', '"**/.dev.vars"="deny"']) {
+			expect(CODEX_REVIEW_PROFILE).toContain(glob)
+		}
 	})
 })
 

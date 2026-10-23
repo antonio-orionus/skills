@@ -161,10 +161,17 @@ export interface CodexModel {
 	effort: string
 }
 
+// Codex reviews read-only, and its sandbox refuses secret files: `.env` files
+// and `~/.ssh`, in the repository and anywhere in home. Passed inline, so it
+// needs no profile in the user's config. `--sandbox` must stay off the call:
+// it switches Codex to the legacy sandbox, which ignores permission profiles.
+export const CODEX_REVIEW_PROFILE =
+	'permissions.dual-review={extends=":read-only", filesystem={"~/**/.env"="deny", "~/**/.env.*"="deny", "~/**/.dev.vars"="deny", "~/.ssh"="deny", ":workspace_roots"={"**/.env"="deny", "**/.env.*"="deny", "**/.dev.vars"="deny"}}}'
+
 // The headless Codex call, pinned to a model and effort so the user's own
 // Codex default never decides which model reviews.
 export function codexArgs(prompt: string, schemaFile: string, resultFile: string, {model, effort}: CodexModel): string[] {
-	return ['exec', '-m', model, '-c', `model_reasoning_effort="${effort}"`, '--sandbox', 'read-only', '--output-schema', schemaFile, '--output-last-message', resultFile, prompt]
+	return ['exec', '-m', model, '-c', `model_reasoning_effort="${effort}"`, '-c', 'default_permissions="dual-review"', '-c', CODEX_REVIEW_PROFILE, '--output-schema', schemaFile, '--output-last-message', resultFile, prompt]
 }
 
 export const CLAUDE_MODEL_ENV = 'DUAL_REVIEW_CLAUDE_MODEL'

@@ -4,6 +4,7 @@
     "./skills/documentation/project-readme",
     "./skills/release/github-release-integrity",
     "./skills/adapted/triage",
+    "./skills/adapted/writing-for-agents-opus",
     "./skills/workflow/dual-review",
     "./skills/workflow/pr-review-watch",
     "./skills/workflow/orchestrate",

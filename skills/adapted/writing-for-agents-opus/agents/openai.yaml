@@ -1,0 +1,3 @@
+interface:
+  display_name: "Writing for Agents (Opus)"
+  short_description: "Write documents strong agents consume"

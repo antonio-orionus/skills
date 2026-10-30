@@ -20,6 +20,7 @@ npx skills add antonio-orionus/skills
 | [`claims`](skills/workflow/claims/SKILL.md) | Record which agent session owns an issue, PR or files in a clone, list free issues, and read recorded decisions |
 | [`find-test-gaps`](skills/testing/find-test-gaps/SKILL.md) | Find missing or weak tests across a whole application, with extra checks for Electron apps |
 | [`triage`](skills/adapted/triage/SKILL.md) | Adapted from [mattpocock/skills](https://github.com/mattpocock/skills/tree/main/skills/engineering/triage): move issues through triage roles; every post opens with a neutral agent marker (`> *Posted by an agent.*` plus a hidden `<!-- agent:v1 -->`) instead of the AI disclaimer |
+| [`writing-for-agents-opus`](skills/adapted/writing-for-agents-opus/SKILL.md) | Adapted from [mattpocock/skills](https://github.com/mattpocock/skills/tree/main/skills/productivity/writing-for-agents): write and review documents agents read (skills, AGENTS.md, briefs, tickets), tuned for a strong reader: fix outcomes rather than process, keep the reasons behind rules, scope prohibitions, review from a fresh context |
 
 ## Try `project-readme`
 

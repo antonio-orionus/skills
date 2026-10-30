@@ -1,6 +1,8 @@
 ---
 name: project-readme
 description: Create, rewrite, update, improve, or validate truthful README.md files for any project archetype. Use for libraries, SDKs, CLIs, web apps, API services, MCP servers, agent skills, monorepos, docs sites, GitHub Actions, extensions, container images, Terraform modules, Helm charts, model cards, dataset cards, research code, templates, demos, specs, desktop/mobile apps, badges, quick starts, setup docs, API or command references, README validation, and README quality checks.
+metadata:
+  internal: true
 ---
 
 # Project README

@@ -1,5 +1,5 @@
 ---
-name: writing-for-agents-opus
+name: writing-for-agents-frontier
 description: Writing documents for agents. Use when creating, editing or reviewing a skill, AGENTS.md or CLAUDE.md, or any doc an agent is pointed at or handed (a sub-agent brief, a ticket, a rule file).
 metadata:
   upstream-repo: mattpocock/skills
@@ -13,7 +13,7 @@ When the document you're writing, editing or reviewing is a skill, read [`SKILL-
 
 ## The reader
 
-Every judgement below is relative to the model that reads the document: whether a line is a no-op, how much process to fix, how much to explain. This reference assumes a strong agentic reader (Opus 5.5 class): it knows the craft, plans its own work, and finds paths the author did not foresee. It rarely wanders; its characteristic failure is the opposite, obeying a document so faithfully that it trades a better path for the written one, or stretches a rule to cases the author never meant.
+Every judgement below is relative to the model that reads the document: whether a line is a no-op, how much process to fix, how much to explain. This reference assumes a strong agentic reader (a frontier model, Opus 5.5 class): it knows the craft, plans its own work, and finds paths the author did not foresee. It rarely wanders; its characteristic failure is the opposite, obeying a document so faithfully that it trades a better path for the written one, or stretches a rule to cases the author never meant.
 
 So a document for this reader earns its place by supplying what the model cannot know (the goal, the constraints, the local conventions, the reasons behind them) and by leaving room everywhere else. A document that must also serve weaker models keeps more process and more explicit instruction, at the strong reader's expense: make that trade knowingly.
 

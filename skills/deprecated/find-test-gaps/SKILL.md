@@ -1,6 +1,8 @@
 ---
 name: find-test-gaps
 description: Finds missing or weak tests across a whole application (with extra checks for Electron apps), focusing on stability, integrations, edge cases, and production-readiness rather than only current PR changes. Use when asked to find test gaps, harden a codebase's tests, or judge whether an app is production-ready.
+metadata:
+  internal: true
 ---
 
 You are acting as a senior QA engineer, test architect, and application reliability specialist.

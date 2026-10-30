@@ -1,6 +1,6 @@
 # Skill mechanics
 
-The skill-specific branch of [`writing-for-agents-opus`](SKILL.md): what changes when the document is a skill. Everything else about writing it is the universal reference in `SKILL.md`.
+The skill-specific branch of [`writing-for-agents-frontier`](SKILL.md): what changes when the document is a skill. Everything else about writing it is the universal reference in `SKILL.md`.
 
 ## Invocation
 

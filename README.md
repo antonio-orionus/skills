@@ -12,29 +12,9 @@ npx skills add antonio-orionus/skills
 
 | Skill | Description |
 |-------|-------------|
-| [`project-readme`](skills/documentation/project-readme/SKILL.md) | Create, update, rewrite, or validate truthful README files for any project archetype |
-| [`github-release-integrity`](skills/release/github-release-integrity/SKILL.md) | Decide, implement, or debug GitHub Release asset integrity, immutable releases, attestations, checksums, and stable release asset URLs |
-| [`dual-review`](skills/workflow/dual-review/SKILL.md) | Local pre-PR review: Claude and Codex review a branch, then cross-check each other's findings; `check-head` refuses a push that differs from what was reviewed |
 | [`pr-review-watch`](skills/workflow/pr-review-watch/SKILL.md) | Trigger, wait for and read a CodeRabbit review on a GitHub PR without polling loops |
-| [`orchestrate`](skills/workflow/orchestrate/SKILL.md) | Turn a backlog into merged PRs by verifying candidates and dispatching other agent sessions |
-| [`claims`](skills/workflow/claims/SKILL.md) | Record which agent session owns an issue, PR or files in a clone, list free issues, and read recorded decisions |
-| [`find-test-gaps`](skills/testing/find-test-gaps/SKILL.md) | Find missing or weak tests across a whole application, with extra checks for Electron apps |
 | [`triage`](skills/adapted/triage/SKILL.md) | Adapted from [mattpocock/skills](https://github.com/mattpocock/skills/tree/main/skills/engineering/triage): move issues through triage roles; every post opens with a neutral agent marker (`> *Posted by an agent.*` plus a hidden `<!-- agent:v1 -->`) instead of the AI disclaimer |
-| [`writing-for-agents-opus`](skills/adapted/writing-for-agents-opus/SKILL.md) | Adapted from [mattpocock/skills](https://github.com/mattpocock/skills/tree/main/skills/productivity/writing-for-agents): write and review documents agents read (skills, AGENTS.md, briefs, tickets), tuned for a strong reader: fix outcomes rather than process, keep the reasons behind rules, scope prohibitions, review from a fresh context |
-
-## Try `project-readme`
-
-After installing the collection, trigger the new README skill with a request like:
-
-```text
-Create a README for this repo and validate every claim against the source files.
-```
-
-or:
-
-```text
-Update this README for the primary reader and first successful action.
-```
+| [`writing-for-agents-frontier`](skills/adapted/writing-for-agents-frontier/SKILL.md) | Adapted from [mattpocock/skills](https://github.com/mattpocock/skills/tree/main/skills/productivity/writing-for-agents): write and review documents agents read (skills, AGENTS.md, briefs, tickets), tuned for a strong reader: fix outcomes rather than process, keep the reasons behind rules, scope prohibitions, review from a fresh context |
 
 ## Installation
 
@@ -76,8 +56,8 @@ ln -s /path/to/skills/skills /path/to/your/project/.claude/skills
 
 | Path | Contents |
 |------|----------|
-| [`skills/documentation/project-readme/`](skills/documentation/project-readme/) | Archetype-driven README composer with inspector, validator, ecosystem modules, project-type modules, section modules, and references |
-| [`skills/release/github-release-integrity/`](skills/release/github-release-integrity/) | GitHub Release integrity guidance for immutable releases, workflow provenance, checksums, and asset verification |
+| [`skills/workflow/`](skills/workflow/) | Maintained skills written here |
+| [`skills/deprecated/`](skills/deprecated/) | Skills no longer maintained, kept for reference and hidden from `npx skills add` (see its [README](skills/deprecated/README.md)) |
 | [`skills/adapted/`](skills/adapted/) | Skills copied from another repository and changed; each keeps its source's `LICENSE` and pins its upstream commit |
 | [`scripts/upstream.py`](scripts/upstream.py) | Lists and merges upstream changes into adapted skills |
 | [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json) | Claude Code plugin manifest |
@@ -111,17 +91,10 @@ Keep each copy's changes small, and put project-specific rules in that project's
 
 ## Validate
 
-Run the `project-readme` inspector and validator against this repository:
-
-```bash
-python3 skills/documentation/project-readme/scripts/inspect.py .
-python3 skills/documentation/project-readme/scripts/validate.py README.md --repo .
-```
-
 Run the script tests:
 
 ```bash
-uv run --with pytest pytest skills/documentation/project-readme/scripts/tests scripts/tests -q
+uv run --with pytest pytest scripts/tests -q
 ```
 
 ## Contributing

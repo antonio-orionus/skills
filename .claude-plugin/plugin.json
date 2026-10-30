@@ -1,14 +1,8 @@
 {
   "name": "orionus-skills",
   "skills": [
-    "./skills/documentation/project-readme",
-    "./skills/release/github-release-integrity",
     "./skills/adapted/triage",
-    "./skills/adapted/writing-for-agents-opus",
-    "./skills/workflow/dual-review",
-    "./skills/workflow/pr-review-watch",
-    "./skills/workflow/orchestrate",
-    "./skills/workflow/claims",
-    "./skills/testing/find-test-gaps"
+    "./skills/adapted/writing-for-agents-frontier",
+    "./skills/workflow/pr-review-watch"
   ]
 }

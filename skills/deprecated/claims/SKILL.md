@@ -1,6 +1,8 @@
 ---
 name: claims
 description: "Which agent session owns an issue, PR or set of files in this clone. Use before starting, dispatching, reviewing or commenting on an issue or PR, when filing a follow-up you will do yourself, when a drain needs the next free issue or its stop condition, and before asking the user a question an issue may already have a recorded decision for."
+metadata:
+  internal: true
 ---
 
 # Claims

@@ -1,6 +1,8 @@
 ---
 name: github-release-integrity
 description: Decide, implement, or debug GitHub Release asset integrity for projects using GitHub Releases, immutable releases, release attestations, artifact attestations, checksums, package-manager release workflows, or direct latest download links. Use when Codex is asked whether immutable releases replace actions/attest, why release assets show or do not show GitHub's verified badge, how to verify assets with gh, how to structure release workflows around draft/immutable releases, or how to publish stable binary filenames safely.
+metadata:
+  internal: true
 ---
 
 # GitHub Release Integrity

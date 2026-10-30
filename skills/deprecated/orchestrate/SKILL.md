@@ -1,6 +1,8 @@
 ---
 name: orchestrate
 description: Run a session as the orchestrator - verify backlog candidates, dispatch confirmed fixes and design lanes to other sessions, keep file ownership and the backlogs straight, handle incidents, and report to the user in tables. Use when the user says "orchestrator", "orchestrate", "you are the orchestrator", "check the deferred lists and address them", or hands over a batch of bug candidates for other sessions to fix.
+metadata:
+  internal: true
 ---
 
 # Orchestrate

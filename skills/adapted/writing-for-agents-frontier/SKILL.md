@@ -101,6 +101,8 @@ Keep the reason, cut the **exposition**. The test: would the reason change what 
 
 A strong model copies examples: show one ticket and every ticket takes its shape, down to its length and headings. Use an example where copying is the point (a format that must be exact: a schema, a frontmatter block, a command line) or to show a mistake to recognise. For anything that should vary, describe the qualities instead, or show two examples that differ on purpose and say they are two of many.
 
+The document you're editing is an example too: a new line copies the form of its neighbours (their length, detail, commands, tone). Before matching a neighbour, ask why it has that form, and copy the form only when the same reason holds for the new line.
+
 A document distilled from one real run inherits that run: its repo, its file names, its accidents. Keep the run as evidence, then write for the class of task.
 
 ## Pruning

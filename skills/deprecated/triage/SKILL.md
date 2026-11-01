@@ -3,6 +3,7 @@ name: triage
 description: Move issues and external PRs through a state machine of triage roles, categorise, verify, grill if needed, and write agent-ready briefs.
 disable-model-invocation: true
 metadata:
+  internal: true
   upstream-repo: mattpocock/skills
   upstream-path: skills/engineering/triage
   upstream-commit: 5beb35b040e3de97e54fa9e386d7e42d15c295c2

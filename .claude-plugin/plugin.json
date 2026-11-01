@@ -1,7 +1,6 @@
 {
   "name": "orionus-skills",
   "skills": [
-    "./skills/adapted/triage",
     "./skills/adapted/writing-for-agents-frontier",
     "./skills/workflow/pr-review-watch"
   ]

@@ -5,7 +5,7 @@ An adapted skill pins its source in SKILL.md frontmatter:
 
     metadata:
       upstream-repo: mattpocock/skills
-      upstream-path: skills/engineering/triage
+      upstream-path: skills/productivity/writing-for-agents
       upstream-commit: <full sha>
 
   check [--new]   list upstream commits that touched each pinned path since its pin;
@@ -53,6 +53,8 @@ def frontmatter(text: str) -> str:
 def find_adapted(root: Path) -> list[Adapted]:
     found = []
     for skill_md in sorted((root / "skills").glob("**/SKILL.md")):
+        if skill_md.relative_to(root / "skills").parts[0] == "deprecated":
+            continue
         meta = frontmatter(skill_md.read_text(encoding="utf-8"))
         pins = {key: re.search(rf"^\s+{key}:\s*(\S+)\s*$", meta, re.M) for key in PIN_KEYS}
         if not all(pins.values()):

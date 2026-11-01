@@ -69,6 +69,14 @@ def test_check_reports_up_to_date(tmp_path, capsys):
     assert "up to date" in capsys.readouterr().out
 
 
+def test_deprecated_skills_are_not_tracked(tmp_path):
+    _, local, fork, _ = setup(tmp_path)
+    (local / "skills/deprecated").mkdir()
+    fork.rename(local / "skills/deprecated/foo")
+
+    assert upstream.find_adapted(local) == []
+
+
 def test_merge_keeps_both_sides_adds_and_deletes_files_and_moves_the_pin(tmp_path):
     up, local, fork, pin = setup(tmp_path, {"skills/eng/foo/OLD.md": "old\n"})
     tip = commit(up, {

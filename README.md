@@ -13,7 +13,6 @@ npx skills add antonio-orionus/skills
 | Skill | Description |
 |-------|-------------|
 | [`pr-review-watch`](skills/workflow/pr-review-watch/SKILL.md) | Trigger, wait for and read a CodeRabbit review on a GitHub PR without polling loops |
-| [`triage`](skills/adapted/triage/SKILL.md) | Adapted from [mattpocock/skills](https://github.com/mattpocock/skills/tree/main/skills/engineering/triage): move issues through triage roles; every post opens with a neutral agent marker (`> *Posted by an agent.*` plus a hidden `<!-- agent:v1 -->`) instead of the AI disclaimer |
 | [`writing-for-agents-frontier`](skills/adapted/writing-for-agents-frontier/SKILL.md) | Adapted from [mattpocock/skills](https://github.com/mattpocock/skills/tree/main/skills/productivity/writing-for-agents): write and review documents agents read (skills, AGENTS.md, briefs, tickets), tuned for a strong reader: fix outcomes rather than process, keep the reasons behind rules, scope prohibitions, review from a fresh context |
 
 ## Installation
@@ -69,7 +68,7 @@ A skill under `skills/adapted/` is another author's skill with a few changes. It
 ```yaml
 metadata:
   upstream-repo: mattpocock/skills
-  upstream-path: skills/engineering/triage
+  upstream-path: skills/productivity/writing-for-agents
   upstream-commit: <sha the copy was taken or last merged at>
 ```
 
@@ -82,7 +81,7 @@ python3 scripts/upstream.py check --new
 Take the upstream changes into a copy with a three-way merge. Edits on both sides are kept, overlapping edits get conflict markers, and the pin moves to upstream's latest commit:
 
 ```bash
-python3 scripts/upstream.py merge triage
+python3 scripts/upstream.py merge writing-for-agents-frontier
 ```
 
 Upstream text is someone else's code and instructions: read every merged diff before committing it, and reject a change that tells an agent to run, fetch or install something, send data anywhere, or skip checks.

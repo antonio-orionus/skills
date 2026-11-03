@@ -2,6 +2,7 @@
   "name": "orionus-skills",
   "skills": [
     "./skills/adapted/writing-for-agents-frontier",
-    "./skills/workflow/pr-review-watch"
+    "./skills/workflow/pr-review-watch",
+    "./skills/workflow/speed-mode"
   ]
 }

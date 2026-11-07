@@ -1,0 +1,5 @@
+interface:
+  display_name: "Find State Machines"
+  short_description: "Report implicit state machines in a project"
+policy:
+  allow_implicit_invocation: false

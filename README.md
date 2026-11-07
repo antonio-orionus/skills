@@ -12,6 +12,7 @@ npx skills add antonio-orionus/skills
 
 | Skill | Description |
 |-------|-------------|
+| [`find-state-machines`](skills/workflow/find-state-machines/SKILL.md) | Report every implicit state machine in a project, with its states, transitions and flaws |
 | [`pr-review-watch`](skills/workflow/pr-review-watch/SKILL.md) | Trigger, wait for and read a CodeRabbit review on a GitHub PR without polling loops |
 | [`speed-mode`](skills/workflow/speed-mode/SKILL.md) | Switch the current session to favor speed over token savings without giving up accuracy |
 | [`writing-for-agents-frontier`](skills/adapted/writing-for-agents-frontier/SKILL.md) | Adapted from [mattpocock/skills](https://github.com/mattpocock/skills/tree/main/skills/productivity/writing-for-agents): write and review documents agents read (skills, AGENTS.md, briefs, tickets), tuned for a strong reader: fix outcomes rather than process, keep the reasons behind rules, scope prohibitions, review from a fresh context |

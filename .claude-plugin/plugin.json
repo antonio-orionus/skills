@@ -2,6 +2,7 @@
   "name": "orionus-skills",
   "skills": [
     "./skills/adapted/writing-for-agents-frontier",
+    "./skills/workflow/find-invariants",
     "./skills/workflow/find-state-machines",
     "./skills/workflow/lean-mode",
     "./skills/workflow/pr-review-watch",

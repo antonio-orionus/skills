@@ -1,0 +1,5 @@
+interface:
+  display_name: "Find Invariants"
+  short_description: "Report invariants a project relies on but doesn't enforce"
+policy:
+  allow_implicit_invocation: false

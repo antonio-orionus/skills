@@ -12,6 +12,7 @@ npx skills add antonio-orionus/skills
 
 | Skill | Description |
 |-------|-------------|
+| [`find-invariants`](skills/workflow/find-invariants/SKILL.md) | Report every invariant a project relies on but doesn't enforce, with how each can break |
 | [`find-state-machines`](skills/workflow/find-state-machines/SKILL.md) | Report every implicit state machine in a project, with its states, transitions and flaws |
 | [`lean-mode`](skills/workflow/lean-mode/SKILL.md) | Switch the current session to favor token efficiency over speed without giving up accuracy |
 | [`pr-review-watch`](skills/workflow/pr-review-watch/SKILL.md) | Trigger, wait for and read a CodeRabbit review on a GitHub PR without polling loops |

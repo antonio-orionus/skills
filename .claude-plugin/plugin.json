@@ -5,6 +5,7 @@
     "./skills/workflow/find-invariants",
     "./skills/workflow/find-state-machines",
     "./skills/workflow/lean-mode",
+    "./skills/workflow/macos-dmg",
     "./skills/workflow/pr-review-watch",
     "./skills/workflow/speed-mode"
   ]

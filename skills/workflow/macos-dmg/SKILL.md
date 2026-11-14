@@ -22,10 +22,13 @@ not yours:
 - **Bottom bars eat space.** A viewer's path bar or status bar is a global Finder
   setting that wins over the image's per-window setting, and covers the bottom of the
   window. Keep icons, arrow and text out of the bottom ~60 pt.
-- **Hidden files show up** for viewers who show hidden files: the background image,
-  `.VolumeIcon.icns` and `.DS_Store` appear as icons. Position them outside the
-  window (dmgbuild `icon_locations` accepts them); those viewers then just get a
-  scrollbar.
+- **Hidden files show up** for viewers who show hidden files: the background image
+  and `.VolumeIcon.icns` appear as icons (`.DS_Store` never does). Left unpositioned,
+  as most installers leave them, Finder puts them just below the icons, half in view,
+  and scrolling runs past the background into white. Instead, park them just below
+  the visible window, within its width (dmgbuild `icon_locations` accepts them), and
+  make the background taller than the window so the ground continues under them:
+  those viewers get a vertical scrollbar but a clean window.
 - **".app" shows** for viewers who show all filename extensions, whatever the image
   says; leave room for the longer label. dmgbuild's `hide_extension` has been
   reported to add `com.apple.FinderInfo` to the bundle and break
@@ -71,7 +74,8 @@ And for every viewer:
   `spctl --assess --type open --context context:primary-signature -vv <dmg>` reports
   `source=Notarized Developer ID`.
 - Someone has looked at the window in light and dark appearance, and with hidden
-  files, all filename extensions and the path and status bars turned on. Change
+  files, all filename extensions and the path and status bars turned on, and with
+  hidden files shown, scrolled to the bottom. Change
   those settings only in a throwaway macOS VM, never on the user's own Mac: they are
   global Finder settings, and `killall Finder` closes their windows.
   (`defaults write com.apple.finder AppleShowAllFiles -bool true`,
